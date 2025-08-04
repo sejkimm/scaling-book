@@ -1,7 +1,7 @@
 ---
 layout: distill
-title: "How to Think About GPUs"
-description: "After talking so much about TPUs, it's probably worth taking a look at what so much of the rest of the world uses: NVIDIA GPUs. This will be a deep-dive into both the chip and networking levels of a modern NVIDIA ML GPU (e.g. H100 or B100) and what kinds of LLM parallelism they allow. You are encouraged to read this after the rest of the book."
+title: "GPU에 대해 생각하는 방법"
+description: "TPU에 대해 그렇게 많이 이야기한 후, 나머지 세계의 많은 부분이 사용하는 것인 NVIDIA GPU를 살펴볼 가치가 있을 것입니다. 이는 현대 NVIDIA ML GPU(예: H100 또는 B100)의 chip과 networking 수준 모두에 대한 심층 탐구이며, 어떤 종류의 LLM parallelism을 허용하는지 알아보겠습니다. 이 책의 나머지 부분을 읽은 후에 이를 읽는 것을 권합니다."
 date: 2025-07-25
 future: true
 htmlwidgets: true
@@ -30,27 +30,27 @@ authors:
 #     for hyperlinks within the post to work correctly.
 #   - please use this format rather than manually creating a markdown table of contents.
 toc:
-  - name: What Is a GPU?
+  - name: GPU란 무엇인가?
   - subsections:
-    - name: "Summary of GPU Specs"
+    - name: "GPU 사양 요약"
     - name: "Grace Hopper"
-    - name: GPUs vs. TPUs at the Chip Level
-    - name: Worked Problems
+    - name: Chip 수준에서 GPU vs. TPU
+    - name: 실습 문제
   - name: Networking
   - subsections:
-    - name: Node Level
-    - name: Worked Problems
-    - name: Beyond the Node Level
-  - name: How Do Collectives Work on GPUs?
+    - name: Node 수준
+    - name: 실습 문제
+    - name: Node 수준을 넘어서
+  - name: GPU에서 Collective는 어떻게 작동하는가?
   - subsections:
-    - name: Within a node
-    - name: In network reductions
-    - name: Beyond the node level
-    - name: Worked problems
-  - name: "Takeaway for LLM Scaling on GPUs"
+    - name: Node 내에서
+    - name: In network reduction
+    - name: Node 수준을 넘어서
+    - name: 실습 문제
+  - name: "GPU에서 LLM Scaling을 위한 핵심 사항"
   - subsections:
-    - name: Worked problems
-  - name: "How does this change with B100 and the GB200 NVL72?"
+    - name: 실습 문제
+  - name: "B100과 GB200 NVL72에서는 어떻게 달라지는가?"
 
 # Below is an example of injecting additional post-specific styles.
 # This is used in the 'Layouts' section of this post.
@@ -72,65 +72,65 @@ _styles: >
   }
 ---
 
-GPUs started as specialized hardware for rendering video games, but since the explosion of AI demand in the 2010s, they’ve started looking more and more like dedicated matrix multiplication machines – in other words, just like TPUs. Both TPUs and GPUs act like matrix multiplication accelerators attached to a CPU. They differ in two key respects: how they’re networked together, and how much responsibility they place on the software to do the right thing (*hint: TPUs need the compiler to do a lot more work*).
+GPU는 비디오 게임을 렌더링하기 위한 전용 하드웨어로 시작되었지만, 2010년대 AI 수요의 폭발 이후 점점 더 전용 matrix multiplication 머신처럼 보이기 시작했습니다 – 다시 말해, TPU와 똑같습니다. TPU와 GPU 모두 CPU에 연결된 matrix multiplication accelerator처럼 작동합니다. 이들은 두 가지 핵심 측면에서 다릅니다: 어떻게 네트워킹되어 있는지, 그리고 올바른 일을 하기 위해 소프트웨어에 얼마나 많은 책임을 부여하는지 (*힌트: TPU는 컴파일러가 훨씬 더 많은 작업을 해야 합니다*).
 
-## What Is a GPU?
+## GPU란 무엇인가?
 
-A modern GPU (e.g. H100, B100) is basically a bunch of compute cores that specialize in matrix multiplication (called Streaming Multiprocessors or SMs) all connected to a stick of fast memory (called DRAM or HBM). Here’s a diagram:
+현대 GPU(예: H100, B100)는 기본적으로 matrix multiplication에 특화된 compute core들(Streaming Multiprocessor 또는 SM이라고 함)이 fast memory stick(DRAM 또는 HBM이라고 함)에 모두 연결된 것입니다. 다음은 diagram입니다:
 
-{% include figure.liquid path="assets/gpu/gpu-diagram.png" class="img-fluid" caption="<b>Figure:</b> the basic components of a modern NVIDIA GPU. The diagram shows the SMs containing a set of Tensor Cores and Warp Schedulers (containing CUDA cores), SMEM, the shared L2 cache, and the main GPU memory (HBM)." %}
+{% include figure.liquid path="assets/gpu/gpu-diagram.png" class="img-fluid" caption="<b>그림:</b> 현대 NVIDIA GPU의 기본 구성 요소. diagram은 Tensor Core와 Warp Scheduler(CUDA core 포함), SMEM, 공유 L2 cache, 그리고 main GPU memory(HBM)를 포함하는 SM을 보여줍니다." %}
 
-Unlike a TPU, which has at most 2 Tensor Cores, **a modern GPU has more than 100 of these SMs** (132 on an H100). Consequently, each of these SMs is much less powerful than a TPU TensorCore but the system overall is more flexible. Each SM is more or less totally independent and so a GPU can do hundreds of tasks at once, although all SMs share a 50MB L2 cache and a large amount of DRAM (80GB on H100, 192 on B100), as shown above. Here’s a more detailed view of an B100 SM:
+최대 2개의 Tensor Core를 가진 TPU와 달리, **현대 GPU는 100개 이상의 이러한 SM을 가집니다**(H100에서는 132개). 따라서 이러한 각 SM은 TPU TensorCore보다 훨씬 덜 강력하지만 전체 시스템은 더 유연합니다. 각 SM은 거의 완전히 독립적이므로 GPU는 수백 개의 작업을 동시에 할 수 있지만, 모든 SM은 50MB L2 cache와 대용량 DRAM(H100에서 80GB, B100에서 192GB)을 공유합니다. 위에 표시된 것처럼입니다. 다음은 B100 SM의 더 자세한 view입니다:
 
-{% include figure.liquid path="assets/gpu/broadwell-sm.png" class="img-small" caption="<b>Figure:</b> a deeper look at a single Broadwell (B100) SM, showing the four SM subpartitions and their CUDA cores, along with 4 TensorCores and some auxilliary units." %}
+{% include figure.liquid path="assets/gpu/broadwell-sm.png" class="img-small" caption="<b>그림:</b> 단일 Broadwell(B100) SM에 대한 더 깊은 관찰로, 4개의 SM subpartition과 그들의 CUDA core, 4개의 TensorCore 및 일부 보조 유닛을 보여줍니다." %}
 
-Each SM is broken up into 4 identical quadrants, which NVIDIA calls "SM subpartitions", each containing a Tensor Core, 16k 32-bit registers, and a set of SIMD lanes NVIDIA calls "CUDA Cores". The core component of each partition is arguably the Tensor Core, which performs matrix multiplications and makes up the vast majority of FLOPs/s, but like a TPU there are a few other components worth noting.
+각 SM은 4개의 동일한 quadrant로 나뉘는데, NVIDIA가 "SM subpartition"이라고 부르며, 각각 Tensor Core, 16k 32-bit register, 그리고 NVIDIA가 "CUDA Core"라고 부르는 SIMD lane 집합을 포함합니다. 각 partition의 핵심 구성 요소는 아마도 matrix multiplication을 수행하고 FLOP/s의 대부분을 차지하는 Tensor Core이지만, TPU처럼 주목할 가치가 있는 몇 가지 다른 구성 요소가 있습니다.
 
-* **CUDA Cores:** each subpartition contains a set of ALUs called **CUDA Cores** that do SIMD vector arithmetic, much like a TPU’s VPU. Each subpartition contains 32 fp32 cores (and a smaller number of int32 and fp64 cores) which function as a single SIMD unit performing the same vector operation in each cycle. **Despite NVIDIA’s dubious naming, you should think of these as lanes in a 32-wide SIMD unit performing the same vector operation in each cycle.**
+* **CUDA Core:** 각 subpartition은 TPU의 VPU와 매우 유사하게 SIMD vector arithmetic을 수행하는 **CUDA Core**라고 불리는 ALU 집합을 포함합니다. 각 subpartition은 32개의 fp32 core(그리고 더 적은 수의 int32와 fp64 core)를 포함하며, 이들은 각 cycle에서 동일한 vector operation을 수행하는 단일 SIMD unit로 기능합니다. **NVIDIA의 의심스러운 명명에도 불구하고, 이들을 각 cycle에서 동일한 vector operation을 수행하는 32-wide SIMD unit의 lane으로 생각해야 합니다.**
 
-    * Each CUDA core (SIMD lane) of a particular precision within a subpartition executes in lockstep, so per-cycle, each lane must perform the same work, just like the TPU’s VPU.
-    * For ML models, CUDA cores are typically used to perform pointwise operations like ReLUs, vector additions, norms, and other non-matmul work.
-    * The CUDA cores within a subpartition are controlled by a dispatch unit called a **warp scheduler**, which acts like the controller of the SIMD unit. Each warp scheduler runs a bit like a multi-threaded CPU, in the sense that it can run many programs (called **warps**) concurrently (up to 16 per subpartition) but only ever executes instructions from a single program in each clock cycle. The hardware automatically switches between active warps to hide I/O operations like memory loads.
-    * Each warp scheduler has its own register file (16,384 32-bit words on H100/B100, for a total of `4 * 16384 * 4 = 256kB` of register memory per SM). Each CUDA core can only access up to 256 registers, so although we can schedule up to 16 “resident warps” per warp scheduler, if each core uses 256 registers, you can only fit 2 at a time.
+    * subpartition 내의 특정 precision의 각 CUDA core(SIMD lane)는 lockstep으로 실행되므로, cycle당 각 lane은 TPU의 VPU와 마찬가지로 동일한 작업을 수행해야 합니다.
+    * ML model의 경우, CUDA core는 일반적으로 ReLU, vector addition, norm, 그리고 기타 non-matmul 작업과 같은 pointwise operation을 수행하는 데 사용됩니다.
+    * subpartition 내의 CUDA core는 SIMD unit의 controller처럼 작동하는 **warp scheduler**라고 불리는 dispatch unit에 의해 제어됩니다. 각 warp scheduler는 많은 프로그램(**warp**라고 함)을 동시에 실행할 수 있지만(subpartition당 최대 16개) 각 clock cycle에서는 단일 프로그램의 instruction만 실행한다는 점에서 multi-threaded CPU와 비슷하게 실행됩니다. 하드웨어는 memory load와 같은 I/O operation을 숨기기 위해 active warp 간에 자동으로 전환합니다.
+    * 각 warp scheduler는 자체 register file을 가집니다(H100/B100에서 16,384개의 32-bit word, SM당 총 `4 * 16384 * 4 = 256kB`의 register memory). 각 CUDA core는 최대 256개의 register에만 접근할 수 있으므로, warp scheduler당 최대 16개의 "resident warp"를 스케줄링할 수 있지만, 각 core가 256개의 register를 사용한다면 한 번에 2개만 맞출 수 있습니다.
 
-* **Tensor Core (TC):** each subpartition has its own Tensor Core, which is a dedicated matrix multiplication unit like a TPU MXU. The Tensor Core represents the vast majority of the GPUs FLOPs/s (e.g. on an H100, we have 990 bf16 FLOP/s compared to just 66 FLOPs/s from the CUDA cores).
+* **Tensor Core (TC):** 각 subpartition은 TPU MXU와 같은 전용 matrix multiplication unit인 자체 Tensor Core를 가집니다. Tensor Core는 GPU FLOP/s의 대부분을 나타냅니다(예: H100에서 CUDA core의 66 FLOP/s에 비해 990 bf16 FLOP/s).
 
-    * An H100 has a peak bfloat16 matmul throughput of 990 bfloat16 TFLOPs per second, so each SM can do about 7.5TFLOPs peak. Since each SM has 4 TCs and each SM runs at a peak frequency of 1.76GHz, each TC can do roughly `7.5e12 / 1.76e9 / 4 ~ 1024` bf16 FLOPs/s, so roughly an `8x8x8` matmul each cycle.
-    * Each GPU generation has gotten larger Tensor Cores as matrix multiplication compute has become more and more important ([good article on this](https://semianalysis.com/2025/06/23/nvidia-tensor-core-evolution-from-volta-to-blackwell/)).
-    * Like TPUs, GPUs can do lower precision matmuls at higher throughput. An H100 can do 990 bf16 TFLOPs/s and 1979 fp8 TFLOPs/s, around 2x. This means if you can effectively train or serve a model at lower precision, you will see significant gains in performance.
-    * Historically, GPU Tensor Cores loaded their inputs from SMEM or register memory, but as the TCs have gotten bigger, it’s become harder to fit the full inputs. B100/B200s introduce a new kind of on-chip memory called Tensor Memory (or TMEM) which is used to store inputs to matmuls done in the TCs.
+    * H100은 초당 990 bfloat16 TFLOP의 peak bfloat16 matmul throughput을 가지므로, 각 SM은 약 7.5TFLOP peak를 할 수 있습니다. 각 SM이 4개의 TC를 가지고 각 SM이 1.76GHz의 peak frequency에서 실행되므로, 각 TC는 대략 `7.5e12 / 1.76e9 / 4 ~ 1024` bf16 FLOP/s를 할 수 있으므로, 각 cycle당 대략 `8x8x8` matmul입니다.
+    * 각 GPU 세대는 matrix multiplication compute가 점점 더 중요해지면서 더 큰 Tensor Core를 가지게 되었습니다([이에 대한 좋은 기사](https://semianalysis.com/2025/06/23/nvidia-tensor-core-evolution-from-volta-to-blackwell/)).
+    * TPU처럼, GPU는 더 높은 throughput으로 더 낮은 precision matmul을 할 수 있습니다. H100은 990 bf16 TFLOP/s와 1979 fp8 TFLOP/s를 할 수 있어서, 약 2배입니다. 이는 더 낮은 precision에서 model을 효과적으로 training하거나 serving할 수 있다면 성능에서 상당한 향상을 볼 것임을 의미합니다.
+    * 역사적으로, GPU Tensor Core는 SMEM이나 register memory에서 입력을 로드했지만, TC가 커지면서 전체 입력을 맞추기가 어려워졌습니다. B100/B200은 TC에서 수행되는 matmul의 입력을 저장하는 데 사용되는 Tensor Memory(또는 TMEM)라고 불리는 새로운 종류의 on-chip memory를 도입합니다.
 
-Beyond the compute units, GPUs have a hierarchy of memories, the largest being HBM (the main GPU memory), and then a series of smaller caches (L2, L1, TMEM, register memory).
+compute unit 외에도, GPU는 가장 큰 것이 HBM(main GPU memory)이고, 그 다음 일련의 더 작은 cache(L2, L1, TMEM, register memory)인 memory 계층을 가집니다.
 
-* **SMEM (L1 Cache):** each SM has its own small on-chip cache, called SMEM, which can either be programmer controlled as “shared memory” or used by the hardware as an on-chip cache.
+* **SMEM (L1 Cache):** 각 SM은 SMEM이라고 불리는 자체 작은 on-chip cache를 가지는데, 이는 "shared memory"로 프로그래머가 제어하거나 하드웨어가 on-chip cache로 사용할 수 있습니다.
 
-    * SMEM is heavily used for storing inputs to TC matmuls and for storing activations while they’re being processed, so we don’t need to load fully from DRAM.
-    * Because SMEM is so much smaller than TPU VMEM, it’s harder to fit whole layers of a model into on-chip memory.
+    * SMEM은 TC matmul의 입력을 저장하고 처리되는 동안 activation을 저장하는 데 많이 사용되므로, DRAM에서 완전히 로드할 필요가 없습니다.
+    * SMEM이 TPU VMEM보다 훨씬 작기 때문에, model의 전체 layer를 on-chip memory에 맞추기가 더 어렵습니다.
 
-* **L2 Cache:** all SMs share a relatively large \~50MB L2 cache used to reduce main memory accesses.
+* **L2 Cache:** 모든 SM은 main memory 접근을 줄이는 데 사용되는 비교적 큰 ~50MB L2 cache를 공유합니다.
 
-    * This is similar in size to a TPU’s VMEM, with higher bandwidth to the TCs than HBM, but isn’t programmer controlled and is **much** slower. This leads to a bit of “spooky action at a distance” where the programmer needs to modify memory access patterns to ensure the L2 cache is well used.
-    * NVIDIA does not publish the L2 bandwidth for their chips, but it’s been measured to be about 5.5TB/s, or roughly 1.6x the HBM bandwidth. By comparison, a TPU’s VMEM is 2x larger *and* has much more bandwidth (around 40TB/s).
+    * 이는 TPU의 VMEM과 크기가 비슷하며, HBM보다 TC에 대한 bandwidth가 높지만, 프로그래머가 제어하지 않고 **훨씬** 느립니다. 이는 프로그래머가 L2 cache가 잘 사용되도록 memory 접근 패턴을 수정해야 하는 약간의 "spooky action at a distance"를 만듭니다.
+    * NVIDIA는 자사 chip의 L2 bandwidth를 공개하지 않지만, 약 5.5TB/s로 측정되었으며, 이는 HBM bandwidth의 대략 1.6배입니다. 비교하자면, TPU의 VMEM은 2배 더 크고 훨씬 더 많은 bandwidth(약 40TB/s)를 가집니다.
 
-* **HBM:** the main GPU memory, used for storing model weights, gradients, activations, etc.
+* **HBM:** model weight, gradient, activation 등을 저장하는 데 사용되는 main GPU memory.
 
-    * The HBM size has increased a lot from 32GB in Volta to 192GB in Blackwell (B100).
-    * The bandwidth from HBM to the CUDA Tensor Core is called HBM bandwidth or memory bandwidth, and is about 3.35TB/s on H100.
+    * HBM 크기는 Volta의 32GB에서 Blackwell(B100)의 192GB로 많이 증가했습니다.
+    * HBM에서 CUDA Tensor Core로의 bandwidth는 HBM bandwidth 또는 memory bandwidth라고 불리며, H100에서 약 3.35TB/s입니다.
 
-Here’s a helpful cheat sheet comparing GPU and TPU components:
+다음은 GPU와 TPU 구성 요소를 비교하는 유용한 cheat sheet입니다:
 
-|              GPU              |     TPU     |              What is it?              |
+|              GPU              |     TPU     |              무엇인가?              |
 | :---------------------------: | :---------: | :-----------------------------------: |
-| Streaming Multiprocessor (SM) | Tensor Core | Core “cell” that contains other units |
+| Streaming Multiprocessor (SM) | Tensor Core | 다른 unit을 포함하는 핵심 "cell" |
 |        Warp Scheduler         |     VPU     |      SIMD vector arithmetic unit      |
-|           CUDA core           |  VPU lane   |            SIMD ALU “lane”            |
+|           CUDA core           |  VPU lane   |            SIMD ALU "lane"            |
 |        SMEM (L1 Cache)        |    VMEM     |       Fast on-chip cache memory       |
 |          Tensor Core          |     MXU     |      Matrix multiplication unit       |
 |             DRAM              |     HBM     |  High bandwidth high capacity memory  |
 
-### Summary of GPU Specs
+### GPU 사양 요약
 
-Here is a summary of GPU specs for recent models:
+다음은 최근 model의 GPU 사양 요약입니다:
 
 |  GPU  | Generation |  SMs  | SMEM per SM (kB) | L2 Cache (MB) | Clock Speed (GHz) | DRAM (GB) | DRAM BW (TB/s) | BF16 TFLOPs | FP8 TFLOPs | FP4 TFLOPs |
 | :---: | :--------: | :---: | :--------------: | :-----------: | :---------------: | :-------: | :------------: | :---------: | :--------: | :--------: |
@@ -141,85 +141,85 @@ Here is a summary of GPU specs for recent models:
 | B100  | Blackwell  |  144  |       256        |      50       |     1.67/1.83     |    192    |       8        |    1800     |    3500    |    7000    |
 | B200  | Blackwell  |   ?   |       256        |      50       |         ?         |    192    |       8        |    2250     |    4500    |    9000    |
 
-All generations have 256kB of register memory per SM. Blackwell also adds 256kB of TMEM per SM. Some specs depend slightly on the precise version of the GPU.
+모든 세대는 SM당 256kB의 register memory를 가집니다. Blackwell은 또한 SM당 256kB의 TMEM을 추가합니다. 일부 사양은 GPU의 정확한 버전에 따라 약간 다릅니다.
 
 ### Grace Hopper
 
-NVIDIA also sells GH200 and GB200 systems which pair some number of GPUs with a Grace Hopper CPU. For instance, a GH200 has 1 H200 and 1 GH CPU, while a GB200 system has 2 B200s and 1 GH CPU. An advantage of this system is that the CPU is connected to the GPUs using a full bandwidth NVLink connection (called NVLink C2C), so you have very high CPU to GPU bandwidth, useful for offloading parameters. In other words, for any given GPU, the bandwidth to reach host memory is identical to reaching another GPU’s HBM.
+NVIDIA는 또한 일부 GPU를 Grace Hopper CPU와 쌍을 이루는 GH200과 GB200 시스템을 판매합니다. 예를 들어, GH200은 1개의 H200과 1개의 GH CPU를 가지고, GB200 시스템은 2개의 B200과 1개의 GH CPU를 가집니다. 이 시스템의 장점은 CPU가 full bandwidth NVLink 연결(NVLink C2C라고 함)을 사용하여 GPU에 연결되므로, parameter를 offload하는 데 유용한 매우 높은 CPU to GPU bandwidth를 가진다는 것입니다. 다시 말해, 주어진 GPU에 대해 host memory에 도달하는 bandwidth는 다른 GPU의 HBM에 도달하는 것과 동일합니다.
 
-### GPUs vs. TPUs at the Chip Level
+### Chip 수준에서 GPU vs. TPU
 
-As you’ve hopefully noticed, GPUs and TPUs look quite similar at a chip level. They both have matmul accelerators, SIMD vector units, and cache memory. One key difference is that TPUs have 1-2 big Tensor Cores, while GPUs have hundreds of small SMs. Likewise, each Tensor Core has 1 big VPU with 4096 ALUs while GPUs have an H100 has 132 * 4 = 528 small independent SIMD units.
+보시다시피, GPU와 TPU는 chip 수준에서 매우 유사해 보입니다. 둘 다 matmul accelerator, SIMD vector unit, cache memory를 가집니다. 한 가지 주요 차이점은 TPU가 1-2개의 큰 Tensor Core를 가지는 반면, GPU는 수백 개의 작은 SM을 가진다는 것입니다. 마찬가지로, 각 Tensor Core는 4096개의 ALU를 가진 1개의 큰 VPU를 가지는 반면, GPU H100은 132 * 4 = 528개의 작고 독립적인 SIMD unit을 가집니다.
 
-Here is a 1:1 comparison of GPUs to TPU:
+다음은 GPU와 TPU의 1:1 비교입니다:
 
-| GPU                           | TPU                      | How many?                                                                                           |
+| GPU                           | TPU                      | 몇 개인가?                                                                                           |
 | :---------------------------- | :----------------------- | :-------------------------------------------------------------------------------------------------- |
-| SM (streaming multiprocessor) | Tensor Core              | H100 has 132, TPU has 1-2.                                                                          |
-| Warp scheduler                | VPU                      | Each SM has 4, so 132 * 4 = 528 on H100. TPU v5 effectively has 4 per Tensor Core, so 8 total.      |
-| SMEM (L1 cache)               | VMEM                     | GPU has 256kB / SM, so ~32MB total. TPUs have around 120MB total of VMEMs at even higher bandwidth. |
-| Registers                     | Vector Registers (VRegs) | GPU has 256kB / SM, TPU has 256kB total.                                                            |
-| Tensor Core                   | MXU                      | TPU v5p has TPU 4 MXUs per TC, so 8 total. Each H100 SM has 4, so 528 total.                        |
+| SM (streaming multiprocessor) | Tensor Core              | H100은 132개, TPU는 1-2개.                                                                          |
+| Warp scheduler                | VPU                      | 각 SM은 4개, 따라서 H100에서 132 * 4 = 528개. TPU v5는 효과적으로 Tensor Core당 4개, 총 8개.      |
+| SMEM (L1 cache)               | VMEM                     | GPU는 SM당 256kB, 총 ~32MB. TPU는 훨씬 더 높은 bandwidth로 총 약 120MB의 VMEM. |
+| Register                     | Vector Register (VReg) | GPU는 SM당 256kB, TPU는 총 256kB.                                                            |
+| Tensor Core                   | MXU                      | TPU v5p는 TC당 4개의 MXU, 총 8개. 각 H100 SM은 4개, 총 528개.                        |
 
-As you can see, TPUs are much less modular than GPUs! This makes them cheaper to build but more complex to program. For instance, TPUs require matmuls to be multiples of a core `[8, 128] x [128, 128]` size and vector work to be done in increments of `[8, 128]`, and will pad input arrays to this size. TPUs are also easy to stall if e.g. vector arithmetic takes longer than a given matrix multiplication, since there is only 1 of each and they are often fused together. But if used properly, they also avoid a huge amount of cost and hardware complexity coming from the modular nature of the GPU.
+보시다시피, TPU는 GPU보다 훨씬 덜 modular합니다! 이는 구축하기에는 더 저렴하지만 프로그래밍하기에는 더 복잡하게 만듭니다. 예를 들어, TPU는 matmul이 core `[8, 128] x [128, 128]` 크기의 배수여야 하고 vector 작업이 `[8, 128]`의 증분으로 수행되어야 하며, 입력 배열을 이 크기로 pad합니다. TPU는 또한 예를 들어 vector arithmetic이 주어진 matrix multiplication보다 오래 걸리는 경우 stall하기 쉬운데, 각각 1개씩만 있고 종종 함께 fuse되기 때문입니다. 하지만 제대로 사용하면, GPU의 modular 특성에서 오는 엄청난 비용과 하드웨어 복잡성을 피할 수도 있습니다.
 
-TPUs also have a lot more fast cache memory that can be used for storing weights and activations. This can make them faster for LLM inference if you can consistently fetch weights into VMEM.
+TPU는 또한 weight와 activation을 저장하는 데 사용할 수 있는 훨씬 더 많은 fast cache memory를 가집니다. 이는 weight를 VMEM으로 지속적으로 fetch할 수 있다면 LLM inference에서 더 빠르게 만들 수 있습니다.
 
-### Worked Problems
+### 실습 문제
 
-Here are some problems to work through that test some of the content above. Answers are provided, but it’s probably a good idea to try to answer the questions before looking, pen and paper in hand.
+다음은 위 내용의 일부를 테스트하는 문제들입니다. 답이 제공되지만, 보기 전에 펜과 종이를 손에 들고 질문에 답하려고 시도하는 것이 좋은 아이디어일 것입니다.
 
-**Question 1 [CUDA cores]:** How many CUDA cores does an H100 have? How does this compare to the number of independent lanes in a TPU v5p?
+**문제 1 [CUDA core]:** H100은 몇 개의 CUDA core를 가지고 있나요? 이것이 TPU v5p의 독립적인 lane 수와 어떻게 비교되나요?
 
-{% details Click here for the answer. %}
+{% details 답을 보려면 클릭하세요. %}
 
-**Answer:** `132 * 32 * 4 = 16896` CUDA cores. A TPU v5p has 2 TensorCores (usually connected via Megacore), each with a VPU with (8, 128) lanes and 4 independent ALUs per lane, so 2 * 4 * 8 * 128 = 8192. This is half the number of vector lanes of an H100, running at roughly the same frequency.
-
-{% enddetails %}
-
-**Question 2 [Vector FLOPs calculation]:** A single H100 has 132 SMs and runs at a clock speed of 1.59GHz (up to 1.98GHz boost). Assume it can do one vector op per cycle per thread. How many vector FP32 FLOPs can be done per second? With boost? How does this compare to matmul FLOPs?
-
-{% details Click here for the answer. %}
-
-**Answer:** `132 * 32 * 4 * 1.59e9 = 26.9` TFLOPs/s. With boost its 33.5 TFLOPs/s. This is half what’s reported in the [spec sheet](https://www.nvidia.com/en-us/data-center/h100/) because technically we can do an FMA (fused-multiply-add) in one cycle which counts as two FLOPs, but this is basically never achievable. We can do 990 bfloat16 matmul TFLOPs/s, so ignoring FMAs, Tensor Cores do around 30x more FLOPs/s.
+**답:** `132 * 32 * 4 = 16896` CUDA core. TPU v5p는 2개의 TensorCore(보통 Megacore를 통해 연결됨)를 가지며, 각각 (8, 128) lane과 lane당 4개의 독립적인 ALU를 가진 VPU를 가지므로, 2 * 4 * 8 * 128 = 8192입니다. 이는 대략 같은 frequency에서 실행되는 H100의 vector lane 수의 절반입니다.
 
 {% enddetails %}
 
-**Question 3 [GPU matmul intensity]:** What is the peak bf16 matmul intensity on an H100? A B200?
+**문제 2 [Vector FLOP 계산]:** 단일 H100은 132개의 SM을 가지고 1.59GHz의 clock speed(최대 1.98GHz boost)에서 실행됩니다. thread당 cycle당 하나의 vector op을 할 수 있다고 가정하세요. 초당 몇 개의 vector FP32 FLOP을 할 수 있나요? boost로는? 이것이 matmul FLOP과 어떻게 비교되나요?
 
-{% details Click here for the answer. %}
+{% details 답을 보려면 클릭하세요. %}
 
-**Answer:** For an H100, we have a peak 990e12 bf16 FLOPs and 3.35e12 bytes / s of bandwidth. So the critical intensity is 990e12 / 3.35e12 = 295, fairly similar to the 240 in a TPU. For B200 its 2250e12 / 8e12 = 281, very similar. This means, similar to TPUs, that we need a batch size of around 280 to be compute-bound in a matmul.
+**답:** `132 * 32 * 4 * 1.59e9 = 26.9` TFLOP/s. boost로는 33.5 TFLOP/s. 이는 기술적으로 한 cycle에서 두 FLOP으로 계산되는 FMA(fused-multiply-add)를 할 수 있지만 이는 기본적으로 달성할 수 없기 때문에 [spec sheet](https://www.nvidia.com/en-us/data-center/h100/)에서 보고된 것의 절반입니다. 990 bfloat16 matmul TFLOP/s를 할 수 있으므로, FMA를 무시하면 Tensor Core는 약 30배 더 많은 FLOP/s를 합니다.
 
 {% enddetails %}
 
-**Question 4 [L1 cache capacity]:** What is the total L1 cache/SMEM capacity for an H100? What about register memory? How does this compare to TPU VMEM capacity.
+**문제 3 [GPU matmul intensity]:** H100에서 peak bf16 matmul intensity는 무엇인가요? B200은?
 
-{% details Click here for the answer. %}
+{% details 답을 보려면 클릭하세요. %}
 
-**Answer:** We have 256kB per SM, so about 33MB of each, or about 66MB total. This is about half the 120MB of a modern TPU’s VMEM, although a TPU only has 256kB of register memory total! TPU VMEM latency is lower than SMEM latency, which is one reason we can get away with so little register memory on GPU.
+**답:** H100의 경우, peak 990e12 bf16 FLOP과 3.35e12 byte/s의 bandwidth를 가집니다. 따라서 critical intensity는 990e12 / 3.35e12 = 295로, TPU의 240과 상당히 유사합니다. B200의 경우 2250e12 / 8e12 = 281로, 매우 유사합니다. 이는 TPU와 마찬가지로 matmul에서 compute-bound가 되려면 약 280의 batch size가 필요함을 의미합니다.
+
+{% enddetails %}
+
+**문제 4 [L1 cache capacity]:** H100의 총 L1 cache/SMEM capacity는 무엇인가요? register memory는? 이것이 TPU VMEM capacity와 어떻게 비교되나요?
+
+{% details 답을 보려면 클릭하세요. %}
+
+**답:** SM당 256kB를 가지므로, 각각 약 33MB, 총 약 66MB입니다. 이는 현대 TPU VMEM의 120MB의 약 절반이지만, TPU는 총 256kB의 register memory만 가집니다! TPU VMEM latency가 SMEM latency보다 낮은데, 이는 GPU에서 그렇게 적은 register memory로도 해낼 수 있는 이유 중 하나입니다.
 
 {% enddetails %}
 
 ## Networking
 
-Networking is arguably the area where GPUs and TPUs differ the most. As we’ve seen, TPUs are connected in 2D or 3D tori, where each TPU is only connected to its neighbors. This means sending a message between two TPUs must pass through every intervening TPU, and forces us to use only uniform communication patterns over the mesh. While inconvenient in some respects, this also means the number of links per TPU is constant and we can scale to arbitrarily large TPU “pods”.
+Networking은 아마도 GPU와 TPU가 가장 다른 영역일 것입니다. 보았듯이, TPU는 각 TPU가 이웃에만 연결된 2D 또는 3D tori로 연결됩니다. 이는 두 TPU 간에 메시지를 보내는 것이 모든 중간 TPU를 통과해야 함을 의미하고, mesh에 대해 uniform communication pattern만 사용하도록 강제합니다. 일부 측면에서는 불편하지만, 이는 또한 TPU당 link 수가 일정하고 임의로 큰 TPU "pod"로 확장할 수 있음을 의미합니다.
 
-GPUs on the other hand use a more traditional hierarchical tree-based switching network. Sets of 8 GPUs called **nodes** (up to 72 for B200) are connected within 1 hop of each other with very high bandwidth, and these nodes are connected to larger units (called SUs or scalable units) with a network switch (branded NVSwitch), which in turn are connected into larger units with higher level switches.
+반면 GPU는 더 전통적인 hierarchical tree-based switching network를 사용합니다. **node**라고 불리는 8개 GPU의 집합(B200의 경우 최대 72개)이 매우 높은 bandwidth로 서로 1 hop 내에 연결되고, 이러한 node는 network switch(NVSwitch라고 브랜드됨)로 더 큰 unit(SU 또는 scalable unit이라고 함)에 연결되며, 이는 차례로 higher level switch로 더 큰 unit에 연결됩니다.
 
-### Node Level
+### Node 수준
 
-A GPU node is a small unit, typically of 8 GPUs (up to 72 for B200), with all-to-all, full-bandwidth connectivity. Each node has some number of NVSwitches, connected to all the local GPUs with high-bandwidth Infiniband NVLinks.
+GPU node는 일반적으로 8개 GPU(B200의 경우 최대 72개)의 작은 unit으로, all-to-all, full-bandwidth connectivity를 가집니다. 각 node는 고대역폭 Infiniband NVLink로 모든 local GPU에 연결된 일정 수의 NVSwitch를 가집니다.
 
-The actual node-level topology has changed quite a bit over time, including the number of switches per node, but for H100, we have 4 NVSwitches per node, with GPUs connected to them in a 5 + 4 + 4 + 5 link pattern:
+실제 node-level topology는 시간이 지나면서 node당 switch 수를 포함하여 상당히 변했지만, H100의 경우 node당 4개의 NVSwitch를 가지며, GPU가 5 + 4 + 4 + 5 link 패턴으로 연결됩니다:
 
-{% include figure.liquid path="assets/gpu/nvlink-nodes.png" class="img-fluid" caption="<b>Figure:</b> how different NVIDIA GPU generations have connected their GPUs into nodes. Note that the networking configuration and the number of NVSwitches per node has changed from generation to generation." %}
+{% include figure.liquid path="assets/gpu/nvlink-nodes.png" class="img-fluid" caption="<b>그림:</b> 다양한 NVIDIA GPU 세대가 GPU를 node로 연결하는 방법. networking 구성과 node당 NVSwitch 수가 세대마다 변했음에 주목하세요." %}
 
-For an H100, each NVLink link has 25GB/s of bandwidth each way (50GB/s for B100), giving us 18 * 25=450GB/s of full-duplex bandwidth from each GPU into the network. These massive switches have up to 64 NVLink ports, meaning for an H100 with 4 switches, they can handle a total of 64 * 25e9 * 4=6.4TB/s of bandwidth.
+H100의 경우, 각 NVLink link는 각 방향당 25GB/s의 bandwidth(B100의 경우 50GB/s)를 가지며, 각 GPU에서 network로 18 * 25=450GB/s의 full-duplex bandwidth를 제공합니다. 이러한 거대한 switch는 최대 64개의 NVLink port를 가지므로, 4개의 switch를 가진 H100의 경우 총 64 * 25e9 * 4=6.4TB/s의 bandwidth를 처리할 수 있습니다.
 
-{% include figure.liquid path="assets/gpu/nvlink4.png" class="img-fluid" caption="<b>Figure:</b> an NVIDIA sales diagram showing how a single NVLink4 Switch works (including 64 ports each with 50GB/s of bandwidth.)" %}
+{% include figure.liquid path="assets/gpu/nvlink4.png" class="img-fluid" caption="<b>그림:</b> 단일 NVLink4 Switch가 어떻게 작동하는지 보여주는 NVIDIA 판매 diagram(각각 50GB/s의 bandwidth를 가진 64개의 port 포함)." %}
 
-Here’s an overview of how these numbers have changed with GPU generation:
+다음은 이러한 수치가 GPU 세대에 따라 어떻게 변했는지에 대한 개요입니다:
 
 | NVLink Gen | NVSwitch Gen | GPU Generation | NVLink Bandwidth (GB/s, full-duplex) | Max Links / GPU | Node GPU to GPU bandwidth (GB/s full-duplex) | Node size (NVSwitch domain)         |   NVSwitches per node    |
 | :--------: | :----------: | :-------------: | :----------------------------------: | :-------------: | :------------------------------------------: | :----------------------------------: | :----------------------: |
@@ -227,49 +227,49 @@ Here’s an overview of how these numbers have changed with GPU generation:
 |  **4.0**   |   **3.0**    | Hopper         |                  25                  |       18        |                     450                      | 8                                   |            4             |
 |  **5.0**   |   **4.0**    | Blackwell      |                  50                  |       18        |                     900                      | 8 for H200/B200, 72 for GB200 NVL72 | 2 for B200, 18 for NVL72 |
 
-### Worked Problems
+### 실습 문제
 
-Here are some more Q/A problems on networking. I find these particularly useful to do out, since they make you work through the actual communication patterns.
+다음은 networking에 대한 몇 가지 더 많은 Q/A 문제입니다. 실제 communication pattern을 다루게 하므로 이를 해보는 것이 특히 유용하다고 생각합니다.
 
-**Question 1 [Total bandwidth for H100 node]:** How much total bandwidth do we have per node in an 8xH100 node with 4 switches? *Hint:* consider both the NVLink and NVSwitch bandwidth.
+**문제 1 [H100 node의 총 bandwidth]:** 4개의 switch를 가진 8xH100 node에서 node당 얼마나 많은 총 bandwidth를 가지나요? *힌트:* NVLink와 NVSwitch bandwidth를 모두 고려하세요.
 
-{% details Click here for the answer. %}
+{% details 답을 보려면 클릭하세요. %}
 
-**Answer:** we have Gen4 4xNVSwitches, each with 64*25e9=1.6TB/s of unidirectional bandwidth. That would give us 4 * 1.6e12=6.4e12 bandwidth at the switch level. However, note that each GPU can only handle 450GB/s of unidirectional bandwidth, so that means we have at most 450e9 * 8 = 3.6TB/s bandwidth. Since this is smaller, the peak bandwidth is 3.6TB/s.
-
-{% enddetails %}
-
-**Question 2 [Bisection bandwidth]:** Bisection bandwidth is defined as the smallest bandwidth available between any even partition of a network. In other words, if split a network into two equal halves, how much bandwidth crosses between the two halves? Can you calculate the bisection bandwidth of an 8x H100 node? *Hint:* bisection bandwidth typically includes flow in both directions.
-
-{% details Click here for the answer. %}
-
-**Answer:** Any even partition will have 4 GPUs in each half, each of which can egress 4 * 450GB/s to the other half. Taking flow in both directions, this gives us 8 * 450GB/s of bytes cross the partition, or 3.6TB/s of bisection bandwidth. This is what NVIDIA reports e.g. [here](https://hc34.hotchips.org/assets/program/conference/day2/Network%20and%20Switches/NVSwitch%20HotChips%202022%20r5.pdf).
+**답:** Gen4 4xNVSwitch를 가지며, 각각 64*25e9=1.6TB/s의 단방향 bandwidth를 가집니다. 그러면 switch 수준에서 4 * 1.6e12=6.4e12 bandwidth를 가질 것입니다. 하지만 각 GPU는 450GB/s의 단방향 bandwidth만 처리할 수 있으므로, 최대 450e9 * 8 = 3.6TB/s bandwidth를 가짐을 의미합니다. 이것이 더 작으므로, peak bandwidth는 3.6TB/s입니다.
 
 {% enddetails %}
 
-**Question 3 [AllGather cost]:** Given an array of B bytes, how long would a (throughput-bound) AllGather take on an 8xH100 node? Do the math for bf16[DX, F] where D=1024, F=16,384. *It’s worth reading the TPU collectives [section](https://jax-ml.github.io/scaling-book/sharding/) before answering this. Think this through here but we’ll talk much more about collectives next.*
+**문제 2 [Bisection bandwidth]:** Bisection bandwidth는 network의 임의 균등 분할 간에 사용 가능한 가장 작은 bandwidth로 정의됩니다. 다시 말해, network를 두 개의 동일한 절반으로 나누면, 두 절반 사이에 얼마나 많은 bandwidth가 교차하나요? 8x H100 node의 bisection bandwidth를 계산할 수 있나요? *힌트:* bisection bandwidth는 일반적으로 양방향 flow를 포함합니다.
 
-{% details Click here for the answer. %}
+{% details 답을 보려면 클릭하세요. %}
 
-**Answer:** Each GPU can egress 450GB/s, and each GPU has $B / N$ bytes (where N=8, the node size). We can imagine each node sending its bytes to each of the other $N - 1$ nodes one after the other, leading to a total of $N - 1$ turns each with $T_\text{comms} = (B / (N * W_\text{unidirectional}))$, or $T_\text{comms} = (N - 1) * B / (N * W_\text{unidirectional})$. This is approximately $B / (N * W_\text{uni})$ or $B$ / 3.6e12, the bisection bandwidth.
-
-For the given array, we have B = `1024*16384*2=32MB`, so the total time is `33.5e6 / 3.6e12 = 9us`. This could be latency-bound, so it may take longer than this in practice.
+**답:** 임의의 균등 분할은 각 절반에 4개의 GPU를 가지며, 각각은 다른 절반으로 4 * 450GB/s를 egress할 수 있습니다. 양방향 flow를 고려하면, 8 * 450GB/s의 byte가 분할을 교차하거나, 3.6TB/s의 bisection bandwidth를 제공합니다. 이는 NVIDIA가 예를 들어 [여기](https://hc34.hotchips.org/assets/program/conference/day2/Network%20and%20Switches/NVSwitch%20HotChips%202022%20r5.pdf)에서 보고하는 것입니다.
 
 {% enddetails %}
 
-### Beyond the Node Level
+**문제 3 [AllGather 비용]:** B byte의 배열이 주어졌을 때, 8xH100 node에서 (throughput-bound) AllGather가 얼마나 걸릴까요? D=1024, F=16,384인 bf16[DX, F]에 대한 계산을 하세요. *이를 답하기 전에 TPU collective [섹션](https://jax-ml.github.io/scaling-book/sharding/)을 읽어볼 가치가 있습니다. 여기서 이를 생각해보되 다음에 collective에 대해 훨씬 더 많이 이야기하겠습니다.*
 
-Beyond the node level, the topology of a GPU network is less standard. NVIDIA publishes a reference DGX SuperPod architecture that connects a larger set of GPUs than a single node, but customers and datacenter providers are free to customize this to their needs.
+{% details 답을 보려면 클릭하세요. %}
 
-Here is a diagram for a standard 1024 GPU H100 system, where each DGX pod in the bottom row has 8 GPUs. Each set of 32 nodes is called a “Scalable Unit” (or SU), under a single set of 8 leaf switches. This SU has 256 GPUs with 4 NVSwitches per node and 8 leaf switches. The overall SuperPod then adds 16 top level “spine” switches, giving us 1024 GPUs with 512 node-level switches, 32 leaf switches, and 16 spine switches, for a total of 512 + 32 + 16 = 560 NVSwitches. Leaf switches are connected to nodes in sets of 32 nodes, so each set of 256 GPUs has 8 leaf switches. All leaf switches are connected to all spine switches.
+**답:** 각 GPU는 450GB/s를 egress할 수 있고, 각 GPU는 $B / N$ byte(여기서 N=8, node 크기)를 가집니다. 각 node가 다른 $N - 1$ node에 차례로 byte를 보내는 것을 상상할 수 있으며, 총 $N - 1$번의 turn으로 각각 $T_\text{comms} = (B / (N * W_\text{unidirectional}))$이거나, $T_\text{comms} = (N - 1) * B / (N * W_\text{unidirectional})$입니다. 이는 대략 $B / (N * W_\text{uni})$ 또는 $B$ / 3.6e12, bisection bandwidth입니다.
 
-At each level we can be bottlenecked by the available NVLink bandwidth, the cabling, or the total switch bandwidth.
+주어진 배열의 경우, B = `1024*16384*2=32MB`이므로, 총 시간은 `33.5e6 / 3.6e12 = 9us`입니다. 이는 latency-bound일 수 있으므로, 실제로는 이보다 더 오래 걸릴 수 있습니다.
 
-  * **Node level:** at the node level, we have 4 * 1.6TB/s = 6.4TB/s of unidirectional switch bandwidth, but each of our 8 GPUs can only egress 450GB/s into the switch, meaning we actually have a peak bandwidth of 450e9 * 8 = 3.6TB/s within the node.
-  * **SU/leaf level:** at the SU level, we have 8 switches connecting 32 nodes in an all-to-all fashion with 1x400 Gbps Infiniband. This gives us `8 * 32 * 400 / 8 = 12.8TB/s` of egress bandwidth from the nodes, and we have 8 * 1.6TB/s = 12.8TB/s at the switch level, so both agree precisely.
-  * **Spine level:** at the spine level, we have 16 switches connecting 32 leaf switches with 2x400 Gbps links, so we have 32 * 16 * 400 * 2 / 8 = 51.2TB/s of egress bandwidth. The 16 switches give us 16 * 1.6TB/s = 25.6TB/s of bandwidth, so this is the bottleneck at this level.
+{% enddetails %}
 
-Per GPU, this gives us 450GB/s of GPU to GPU bandwidth at the node level, 50GB/s at the SU level, and 25 GB/s at the spine level.
+### Node 수준을 넘어서
+
+Node 수준을 넘어서면, GPU network의 topology는 덜 표준적입니다. NVIDIA는 단일 node보다 더 큰 GPU 집합을 연결하는 reference DGX SuperPod 아키텍처를 발표하지만, 고객과 datacenter provider는 필요에 따라 이를 자유롭게 사용자 정의할 수 있습니다.
+
+다음은 표준 1024 GPU H100 시스템의 diagram으로, 맨 아래 행의 각 DGX pod가 8개의 GPU를 가집니다. 32개 node의 각 세트를 "Scalable Unit"(또는 SU)라고 하며, 8개의 leaf switch 아래에 있습니다. 이 SU는 node당 4개의 NVSwitch와 8개의 leaf switch를 가진 256개의 GPU를 가집니다. 전체 SuperPod는 그 다음 16개의 top level "spine" switch를 추가하여, 512개의 node-level switch, 32개의 leaf switch, 16개의 spine switch로 총 512 + 32 + 16 = 560개의 NVSwitch를 가진 1024개의 GPU를 제공합니다. Leaf switch는 32개 node의 세트로 node에 연결되므로, 256개 GPU의 각 세트는 8개의 leaf switch를 가집니다. 모든 leaf switch는 모든 spine switch에 연결됩니다.
+
+각 수준에서 사용 가능한 NVLink bandwidth, cabling, 또는 총 switch bandwidth에 의해 병목될 수 있습니다.
+
+  * **Node 수준:** node 수준에서, 4 * 1.6TB/s = 6.4TB/s의 단방향 switch bandwidth를 가지지만, 8개의 GPU 각각은 450GB/s만 switch로 egress할 수 있으므로, 실제로 node 내에서 450e9 * 8 = 3.6TB/s의 peak bandwidth를 가집니다.
+  * **SU/leaf 수준:** SU 수준에서, 8개의 switch가 1x400 Gbps Infiniband로 32개 node를 all-to-all 방식으로 연결합니다. 이는 node에서 `8 * 32 * 400 / 8 = 12.8TB/s`의 egress bandwidth를 제공하고, switch 수준에서 8 * 1.6TB/s = 12.8TB/s를 가지므로, 둘 다 정확히 일치합니다.
+  * **Spine 수준:** spine 수준에서, 16개의 switch가 2x400 Gbps link로 32개의 leaf switch를 연결하므로, 32 * 16 * 400 * 2 / 8 = 51.2TB/s의 egress bandwidth를 가집니다. 16개의 switch는 16 * 1.6TB/s = 25.6TB/s의 bandwidth를 제공하므로, 이것이 이 수준에서의 병목입니다.
+
+GPU당, 이는 node 수준에서 450GB/s, SU 수준에서 50GB/s, spine 수준에서 25 GB/s의 GPU to GPU bandwidth를 제공합니다.
 
 | Level     | Number of GPUs | Number of NVSwitches per Unit | Total Bandwidth per Unit (TB/s, full-duplex) | GPU-to-GPU Bandwidth (GB/s, full-duplex) |
 | :--------: | :-------------: | :----------------------------: | :-------------------------------------------: | :---------------------------------------: |
@@ -277,83 +277,83 @@ Per GPU, this gives us 450GB/s of GPU to GPU bandwidth at the node level, 50GB/s
 | Leaf (SU) | 256            | 8                             | 12.8                                         | 50                                       |
 | Spine     | 1024           | 16                            | 25.6                                         | 25                                       |
 
-By comparison, a TPU v5p has about 90GB/s egress bandwidth per link, or 540GB/s egress along all axes. This is not point-to-point so it can only be used for restricted, uniform communication patterns but can scale up to 8000 TPUs without loss of bandwidth.
+비교하자면, TPU v5p는 link당 약 90GB/s egress bandwidth, 또는 모든 축을 따라 540GB/s egress를 가집니다. 이는 point-to-point가 아니므로 제한적이고 uniform communication pattern에만 사용할 수 있지만 bandwidth 손실 없이 8000개의 TPU까지 확장할 수 있습니다.
 
-The GPU switching fabric can in theory be extended to arbitrary sizes by adding additional switches or layers of indirection, at the cost of additional latency and reduced bandwidth at the farthest distances.
+GPU switching fabric은 이론적으로 추가 switch 또는 indirection layer를 추가하여 임의 크기로 확장할 수 있으며, 추가 latency와 가장 먼 거리에서 bandwidth 감소의 비용을 감수합니다.
 
-## How Do Collectives Work on GPUs?
+## GPU에서 Collective는 어떻게 작동하는가?
 
-GPUs can perform all the same collectives as TPUs: ReduceScatters, AllGathers, AllReduces, and AllToAlls. Unlike TPUs, the way these work changes depending on whether they’re performed at the node level or above. All these collectives are implemented by NVIDIA in the NCCL (pronounced “nickel”) library, and the actual implementation is a black-box. From here on, we’ll discuss a theoretically optimal model over the NVSwitch tree.
+GPU는 TPU와 동일한 모든 collective를 수행할 수 있습니다: ReduceScatter, AllGather, AllReduce, AllToAll. TPU와 달리, 이들이 작동하는 방식은 node 수준에서 수행되는지 그 이상에서 수행되는지에 따라 달라집니다. 이러한 모든 collective는 NVIDIA가 NCCL("nickel"로 발음) library에서 구현하며, 실제 구현은 black-box입니다. 여기서부터는 NVSwitch tree에 대한 이론적으로 최적인 model을 논의하겠습니다.
 
-### Within a node
+### Node 내에서
 
-For an AllGather or ReduceScatter at the node level, you can perform them around a ring just like a TPU, using the full GPU-to-GPU bandwidth at each hop. Order the GPUs arbitrarily and send a portion of the array around the ring using the full GPU-to-GPU bandwidth:
+node 수준에서 AllGather 또는 ReduceScatter의 경우, TPU처럼 ring 주위에서 각 hop에서 전체 GPU-to-GPU bandwidth를 사용하여 수행할 수 있습니다. GPU를 임의로 정렬하고 전체 GPU-to-GPU bandwidth를 사용하여 배열의 일부를 ring 주위로 보냅니다:
 
 $$T_\text{AG or RS comms} = \frac{\text{bytes} \cdot (N - 1)}{N \cdot \text{GPU egress bandwidth}} \rightarrow \frac{\text{bytes}}{\text{GPU egress bandwidth}}$$
 
-For an AllReduce, you can combine an RS + AG as usual for twice the cost. If you’re concerned about latency (e.g. if your array is very small), you can send directly to every GPU in the node at the same time, increasing the total bytes sent by N (the node size) but performing the whole operation in one hop.
+AllReduce의 경우, 평소와 같이 RS + AG를 두 배의 비용으로 결합할 수 있습니다. latency가 걱정된다면(예: 배열이 매우 작은 경우), node의 모든 GPU에 동시에 직접 보낼 수 있으며, 보내는 총 byte를 N(node 크기)만큼 증가시키지만 전체 operation을 한 hop에서 수행합니다.
 
-So far, this is exactly the same as a TPU, with slightly different overall bandwidth. For instance, with an H100 with 450 GB/s unidirectional bandwidth, AllGather(bf16[B<sub>X</sub>, F]) would take roughly $T_\text{comms} = (2 \cdot B \cdot F) / 450e9$.
+지금까지 이는 약간 다른 전체 bandwidth를 가진 TPU와 정확히 동일합니다. 예를 들어, 450 GB/s 단방향 bandwidth를 가진 H100의 경우, AllGather(bf16[B<sub>X</sub>, F])는 대략 $T_\text{comms} = (2 \cdot B \cdot F) / 450e9$가 걸릴 것입니다.
 
-#### In network reductions
+#### In network reduction
 
-Since the Hopper generation, NVIDIA switches have supported “SHARP” (*Scalable Hierarchical Aggregation and Reduction Protocol*) which allows for “in-network reductions”. This means the network switches themselves can do reduction operations and multiplex or “MultiCast” the result to multiple target GPUs. This effectively halves the cost of an AllReduce, since it means each GPU can send its data to a top-level switch, have the reduction performed there, and broadcast the result without having to egress each GPU twice.
+Hopper 세대부터, NVIDIA switch는 "SHARP" (*Scalable Hierarchical Aggregation and Reduction Protocol*)를 지원하여 "in-network reduction"을 허용합니다. 이는 network switch 자체가 reduction operation을 수행하고 결과를 여러 target GPU에 multiplex하거나 "MultiCast"할 수 있음을 의미합니다. 이는 각 GPU가 데이터를 top-level switch로 보내고, 거기서 reduction을 수행하고, 각 GPU를 두 번 egress할 필요 없이 결과를 broadcast할 수 있음을 의미하므로 효과적으로 AllReduce의 비용을 절반으로 줄입니다.
 
 $$T_\text{AR comms} = \frac{\text{bytes}}{\text{GPU egress bandwidth}}$$
 
-Note: this is exact and not off by a factor of $1 / N$, since each GPU egresses $B * (N - 1) / N$ first, then receives the partially reduced version of its local shard (ingress of $B / N$), finishes the reductions, then egresses $B / N$ again, then ingresses the fully reduced result (ingress of $B * (N - 1) / N$), resulting in exactly bytes $B$ bytes ingressed.
+참고: 이는 정확하며 $1 / N$ 인수만큼 차이나지 않는데, 각 GPU가 먼저 $B * (N - 1) / N$을 egress하고, 그 다음 local shard의 부분적으로 reduced된 버전을 받고(ingress $B / N$), reduction을 완료하고, 그 다음 $B / N$을 다시 egress하고, 그 다음 완전히 reduced된 결과를 ingress하여(ingress $B * (N - 1) / N$), 정확히 $B$ byte를 ingress하게 됩니다.
 
-### Beyond the node level
+### Node 수준을 넘어서
 
-When we go beyond the node-level, the cost is a bit more subtle. We can continue to do a kind of ring reduction, where we think of the ring as being over the leaf or spine switches. For instance, for an AllReduce, we can first AllReduce within the node, then within the leaf, then within the spine, doing a kind of ring reduction each time. In an ideal world, we can overlap these and end up just being bottlenecked by the slowest switch. To a first approximation,
+node 수준을 넘어가면, 비용은 약간 더 미묘합니다. ring을 leaf 또는 spine switch에 대한 것으로 생각하는 일종의 ring reduction을 계속할 수 있습니다. 예를 들어, AllReduce의 경우, 먼저 node 내에서 AllReduce하고, 그 다음 leaf 내에서, 그 다음 spine 내에서, 매번 일종의 ring reduction을 수행할 수 있습니다. 이상적인 세계에서, 이들을 overlap할 수 있고 가장 느린 switch에 의해 병목되게 됩니다. 1차 근사로,
 
 $$T_\text{comms} = \max_i\left(\frac{\text{bytes} \cdot N_{\text{subdomains}_i}}{W_i}\right)$$
 
-where $W_i$ is the aggregate switch bandwidth at level $i$. So for instance, in the above case, we have 3.6TB/s at the node level with 8 subdomains, 12.8TB/s at the SU level with 32 subdomains, and 25.6TB/s at the spine level with 4 subdomains. This means in practice we’ll be bottlenecked by the largest ratio, i.e. `max(8 / 3.6e12, 32 / 12.8e12 , 4 / 25.6e12) = max(2.2e-12, 2.5e-12, 1.56e-13)`, so in practice $T_\text{comms} = B \cdot \text{2.5e-12} = B / 400e9$, i.e. we have about 400GB of AllReduce bandwidth even at the highest level.
+여기서 $W_i$는 수준 $i$에서의 aggregate switch bandwidth입니다. 따라서 예를 들어, 위의 경우에서 8개의 subdomain을 가진 node 수준에서 3.6TB/s, 32개의 subdomain을 가진 SU 수준에서 12.8TB/s, 4개의 subdomain을 가진 spine 수준에서 25.6TB/s를 가집니다. 이는 실제로 가장 큰 비율, 즉 `max(8 / 3.6e12, 32 / 12.8e12 , 4 / 25.6e12) = max(2.2e-12, 2.5e-12, 1.56e-13)`에 의해 병목될 것임을 의미하므로, 실제로 $T_\text{comms} = B \cdot \text{2.5e-12} = B / 400e9$, 즉 최고 수준에서도 약 400GB의 AllReduce bandwidth를 가집니다.
 
-In general, the AllReduce bandwidth is $\max_i(N_{\text{subdomains}_i} / W_i)$, so above it is 400GB/s, determined by the leaf level switch. AllGather is a bit more tricky because the actual volume communicated changes at each level. It’s roughly the same but a bit closer to $\max_i(\text{bytes} \cdot (N - 1) / W)$.
+일반적으로, AllReduce bandwidth는 $\max_i(N_{\text{subdomains}_i} / W_i)$이므로, 위에서는 leaf 수준 switch에 의해 결정되는 400GB/s입니다. AllGather는 실제 통신 볼륨이 각 수준에서 변하기 때문에 약간 더 까다롭습니다. 대략 동일하지만 $\max_i(\text{bytes} \cdot (N - 1) / W)$에 약간 더 가깝습니다.
 
-### Worked problems
+### 실습 문제
 
-**Question 1 [Single-node AR]:** Consider a single node with N GPUs per node. Precisely how many bytes are ingressed and egressed by the switch during an AllReduce?
+**문제 1 [Single-node AR]:** node당 N개의 GPU를 가진 단일 node를 고려하세요. AllReduce 중에 switch에 의해 정확히 몇 byte가 ingress되고 egress되나요?
 
-{% details Click here for the answer. %}
+{% details 답을 보려면 클릭하세요. %}
 
-**Answer:** let’s do this step by step.
+**답:** 단계별로 해봅시다.
 
-1.  Each GPU sends $B \cdot (N - 1) / N$ bytes, so we have $N \cdot B \cdot (N - 1) / N = B \cdot (N - 1)$ ingressed.
-2.  We accumulate the partial sums, and we send back $B / N$ bytes to each GPU, so $N \ B / N = B$ bytes egressed.
-3.  We do a partial sum on the residuals locally, then send this back to the switch. This is a total of $N * B / N = B$ bytes ingressed.
-4.  We capture all the shards and multicast them, sending $B * (N - 1) / N$ to $N$ destinations, for a total of $B * (N - 1) / N * N = B * (N - 1)$ egressed.
+1.  각 GPU는 $B \cdot (N - 1) / N$ byte를 보내므로, $N \cdot B \cdot (N - 1) / N = B \cdot (N - 1)$이 ingress됩니다.
+2.  부분합을 accumulate하고, 각 GPU에 $B / N$ byte를 다시 보내므로, $N \ B / N = B$ byte가 egress됩니다.
+3.  residual에 대해 부분합을 로컬에서 수행한 다음, 이를 switch로 다시 보냅니다. 총 $N * B / N = B$ byte가 ingress됩니다.
+4.  모든 shard를 capture하고 multicast하여, $B * (N - 1) / N$을 $N$개의 destination에 보내므로, 총 $B * (N - 1) / N * N = B * (N - 1)$이 egress됩니다.
 
-Therefore the total is $B * (N - 1) + B = B\cdot N$ bytes ingressed and egressed. This supports the overall throughput being exactly $B\cdot N / W_\text{switch}$.
+따라서 총 $B * (N - 1) + B = B\cdot N$ byte가 ingress되고 egress됩니다. 이는 전체 throughput이 정확히 $B\cdot N / W_\text{switch}$임을 지원합니다.
 
 {% enddetails %}
 
-**Question 2 [SU AllGather]:** Consider only a single SU with M nodes and N GPUs per node. Precisely how many bytes are ingressed and egressed by the node level switch during an AllGather? What about the top-level switch?
+**문제 2 [SU AllGather]:** M개의 node와 node당 N개의 GPU를 가진 단일 SU만 고려하세요. AllGather 중에 node 수준 switch에 의해 정확히 몇 byte가 ingress되고 egress되나요? top-level switch는?
 
-{% details Click here for the answer. %}
+{% details 답을 보려면 클릭하세요. %}
 
-**Answer:** This is similar to the above, and we’ll do it in stages again.
+**답:** 이는 위와 유사하며, 다시 단계별로 하겠습니다.
 
-1.  Each GPU sends $B / MN$ bytes to the switch, for a total ingress of $NB / MN = B / M$ bytes ingress.
-2.  We egress the full $B / M$ bytes up to the spine switch.
-3.  We ingress $B * (M - 1) / M$ bytes from the spine switch
-4.  We egress $B - B / MN$ bytes $N$ times, for a total of $N * (B - B / MN) = NB - B / M$.
+1.  각 GPU는 switch에 $B / MN$ byte를 보내므로, 총 $NB / MN = B / M$ byte ingress입니다.
+2.  전체 $B / M$ byte를 spine switch로 egress합니다.
+3.  spine switch에서 $B * (M - 1) / M$ byte를 ingress합니다.
+4.  $B - B / MN$ byte를 $N$번 egress하므로, 총 $N * (B - B / MN) = NB - B / M$입니다.
 
-The total is $B$ ingress and $BN$ egress, so we should be bottlenecked by egress, and the total time would be 
+총 $B$ ingress와 $BN$ egress이므로, egress에 의해 병목되어야 하고, 총 시간은 
 
-$$T_\text{AllGather} = \frac{BN}{W_\text{node}} = \frac{B}{450e9}$$.
+$$T_\text{AllGather} = \frac{BN}{W_\text{node}} = \frac{B}{450e9}$$
 
-For the spine switch, the math is actually simpler. We must have B / M bytes ingressed M times (for a total of B bytes), and then B (M - 1) / M egressed M times, for a total of B * (M - 1) out. Since this is significantly larger, the cost is 
+spine switch의 경우, 수학이 실제로 더 간단합니다. $B / M$ byte가 M번 ingress되어야 하고(총 B byte), 그 다음 $B (M - 1) / M$이 M번 egress되어야 하므로, 총 $B * (M - 1)$가 나갑니다. 이것이 상당히 크므로, 비용은 
 
 $$T_\text{AllGather} = \frac{B \cdot (M - 1)}{W_\text{top}}$$
 
 {% enddetails %}
 
-## Takeaway for LLM Scaling on GPUs
+## GPU에서 LLM Scaling을 위한 핵심 사항
 
-Reproducing the table above for an H100 SuperPod, we have
+H100 SuperPod에 대한 위 표를 재현하면, 다음을 가집니다:
 
 | Level | Number of GPUs | GPU-to-GPU Bandwidth (full-duplex, GB/s) | Total Bandwidth (full-duplex, TB/s) | AllReduce Bandwidth (GB/s)        |
 | :---: | :------------- | :--------------------------------------- | :---------------------------------- | :-------------------------------- |
@@ -361,98 +361,98 @@ Reproducing the table above for an H100 SuperPod, we have
 | Leaf  | 256            | 50                                       | 8 * 1.6 = 12.8                     | 400GB/s                           |
 | Spine | 1024           | 25                                       | 16 * 1.6 = 25.6                    | 400GB/s (inherited from the leaf) |
 
-Let’s look at the compute communication rooflines as we did for TPUs. Here, [as before](../training), we’ll compare the computation and communication time and look at what point $T_\text{math} \gt T_\text{comms}$.
+TPU에서 했듯이 compute communication roofline을 살펴봅시다. 여기서, [이전과 같이](../training-kr), computation과 communication 시간을 비교하고 $T_\text{math} \gt T_\text{comms}$ 지점을 봅시다.
 
-**Data parallelism:** To be compute-bound for pure data parallelism within a single node, with in-network reductions, we have
+**Data parallelism:** in-network reduction이 있는 단일 node 내에서 pure data parallelism에 대해 compute-bound가 되려면, 다음을 가집니다:
 
 $$T_\text{math} = \frac{2 \cdot 2 \cdot 2 \cdot BDF}{X \cdot C}$$
 
 $$T_\text{comms} = \frac{2 \cdot 2 \cdot DF}{W_\text{AllReduce}}$$
 
-Where we lose a factor of 2 in the comms since we have in-network reductions enabled. Therefore, to be compute-bound, we need $2B / (XC) \gt 1 / W_\text{AllReduce}$ or $B / X \gt C / (2 \cdot W_\text{AllReduce})$, so we just need the per-GPU batch size > `989e12 / (2 * 450e9) = 1098`, quite similar to a TPU (where the number is 850 with all three axes). If we try to do this at the SU or spine level, we get $BS \gt 989e12 / (2 \cdot 400e9) = 1236$.
+in-network reduction이 활성화되어 있으므로 comms에서 2의 인수를 잃습니다. 따라서 compute-bound가 되려면, $2B / (XC) \gt 1 / W_\text{AllReduce}$ 또는 $B / X \gt C / (2 \cdot W_\text{AllReduce})$가 필요하므로, GPU당 batch size > `989e12 / (2 * 450e9) = 1098`만 필요하며, 이는 TPU와 매우 유사합니다(여기서 세 축 모두로 수는 850). SU 또는 spine 수준에서 이를 시도하면 $BS \gt 989e12 / (2 \cdot 400e9) = 1236$을 얻습니다.
 
-**FSDP:** For FSDP, which is the only really useful thing, the number is double this, so for FSDP we need BS > 2472 per GPU. Note how much larger this number is than for a TPU (although B100 will reduce this by a factor of 2).
+**FSDP:** 정말 유용한 유일한 것인 FSDP의 경우, 수는 이의 두 배이므로, FSDP에 대해 GPU당 BS > 2472가 필요합니다. 이 수가 TPU보다 얼마나 큰지 주목하세요(비록 B100이 이를 2의 인수만큼 줄일 것이지만).
 
-Since we need FSDP of some kind, this means for instance, for 2048 GPUs, we would need a batch size of 5M tokens at a minimum, which is fairly doable.
+어떤 종류의 FSDP가 필요하므로, 이는 예를 들어 2048개의 GPU에 대해 최소 5M token의 batch size가 필요함을 의미하며, 이는 상당히 가능합니다.
 
-**Model parallelism:** For model parallelism, this suggests within a single node, we need $Y \< F / (898e12 \cdot (8-1) / (8 \cdot 450e9)) = F / 1746$, so for F=16k, we can go up to 9-way parallelism (or really 8 way, since that’s how large a node is). Clearly, we can’t go larger than this, but not because cross-node bandwidth is low but because our overall bandwidth is low.
+**Model parallelism:** model parallelism의 경우, 이는 단일 node 내에서 $Y \< F / (898e12 \cdot (8-1) / (8 \cdot 450e9)) = F / 1746$이 필요함을 시사하므로, F=16k에 대해 9-way parallelism(또는 실제로는 8 way, 이것이 node가 얼마나 큰지이므로)까지 갈 수 있습니다. 분명히, 이보다 클 수는 없지만, cross-node bandwidth가 낮아서가 아니라 전체 bandwidth가 낮기 때문입니다.
 
-**Mixed FSDP + model parallelism:** Combining some form of model parallelism with DP isn’t quite as simple as in a TPU mesh, where we reduce the cost of the AllReduce by Y (the amount of TP). The general rule for a tree $\text{AllReduce}_X(A_Y { U_X })$ (assuming Y is the inner axis) seems to be
+**Mixed FSDP + model parallelism:** 어떤 형태의 model parallelism과 DP를 결합하는 것은 AllReduce의 비용을 Y(TP의 양)만큼 줄이는 TPU mesh에서만큼 간단하지 않습니다. tree $\text{AllReduce}_X(A_Y { U_X })$(Y가 inner axis라고 가정)에 대한 일반적인 규칙은 다음과 같은 것 같습니다:
 
 $$T_\text{comms} = \max_i\left[\frac{B \cdot S_i}{\max(Y, S_{i-1}) \cdot W_i}\right]$$
 
-where $S_i$ is M * N * …, the size of the subnodes at level $i$ in the tree. So if Y is 64, then at the node level we have `B * 8 / (64 * 3.6e12)`, at the leaf level we have `B * 256 / (64 * 12.8e12)`, and at the spine level we have B * 1024 / (256 * 25.6e12), or in other words bandwidths of 28.8e12, 3.2e12, and 6.4e12. This means we effectively gain a factor of 64 at the node level, a factor of 8 in bandwidth at the leaf level, and stay constant at the spine level. If we did 256-way expert sharding, we’d get a 256x speedup at the node level, 32x at the leaf level, and no speedup at the spine level.
+여기서 $S_i$는 M * N * …, tree의 수준 $i$에서 subnode의 크기입니다. 따라서 Y가 64라면, node 수준에서 `B * 8 / (64 * 3.6e12)`, leaf 수준에서 `B * 256 / (64 * 12.8e12)`, spine 수준에서 B * 1024 / (256 * 25.6e12)를 가지거나, 다시 말해 28.8e12, 3.2e12, 6.4e12의 bandwidth를 가집니다. 이는 node 수준에서 효과적으로 64의 인수를 얻고, leaf 수준에서 bandwidth에서 8의 인수를, spine 수준에서는 일정하게 유지함을 의미합니다. 256-way expert sharding을 했다면, node 수준에서 256x speedup, leaf 수준에서 32x, spine 수준에서는 speedup이 없을 것입니다.
 
-Therefore, if we do 8-way model parallelism, we do in fact reduce the cost of the node-level reduction by 8 and leave everything else the same, so it’s more or less free but not useful in reducing the overall cost of the reduction.
+따라서 8-way model parallelism을 하면, 실제로 node-level reduction의 비용을 8만큼 줄이고 다른 모든 것을 동일하게 둡니다. 따라서 거의 free이지만 reduction의 전체 비용을 줄이는 데는 유용하지 않습니다.
 
-**Expert parallelism:** Expert parallelism isn’t discussed in much detail in the main body of this book, but to a first approximation, an MoE replicates the MLP weights of a dense model E times, i.e. turning $W_\text{in}[D, F]$ and $W_\text{out}[F, D]$ into $W_\text{in}[E, D, F]$ and $W_\text{out}[E, F, D]$, but each token only activates k of these. This increases the total memory by E but increases the FLOPs by only k times. This adds two AllToAlls to send tokens to their chosen experts, but also requires us to AllReduce E times more bytes in a DP setup.
+**Expert parallelism:** Expert parallelism은 이 책의 본문에서 자세히 논의되지 않지만, 1차 근사로 MoE는 dense model의 MLP weight를 E배 복제합니다. 즉, $W_\text{in}[D, F]$와 $W_\text{out}[F, D]$를 $W_\text{in}[E, D, F]$와 $W_\text{out}[E, F, D]$로 바꾸지만, 각 token은 이 중 k개만 활성화합니다. 이는 총 memory를 E만큼 증가시키지만 FLOP을 k배만 증가시킵니다. 이는 token을 선택된 expert에게 보내는 두 개의 AllToAll을 추가하지만, DP 설정에서 E배 더 많은 byte를 AllReduce해야 합니다.
 
-AllToAlls are simpler in a GPU than a TPU because they can be done directly point-to-point, so in this sense the story is much cleaner.
+AllToAll은 직접 point-to-point로 할 수 있기 때문에 GPU에서 TPU보다 간단하므로, 이런 의미에서 이야기가 훨씬 더 깔끔합니다.
 
-But the extra memory is a bigger issue. On a TPU, we can simply shard the experts along a completely independent axis, e.g. $W[E_z, D_X, F_Y]$, which reduces us to 2 axes of a more or less standard dense model. But on GPUs, we can no longer shard our experts along a separate axis, so we can no longer totally alleviate the cost of the extra communication. As we noted above, by doing more sharding of any kind, but particularly expert parallelism, we can reduce the cost of the AllReduce somewhat. If we did 8-way expert parallelism at the node level, we reduce the node-level cost but not the spine level cost, which is bad. If we do 64-way or even 256-way, we get significant wins, but the roofline is no longer quite so simple, since for DP=X and EP=Y, with k tokens per expert, we have (in the backward pass)
+하지만 추가 memory가 더 큰 문제입니다. TPU에서는 expert를 완전히 독립적인 축을 따라 단순히 shard할 수 있습니다. 예: $W[E_z, D_X, F_Y]$, 이는 우리를 거의 표준 dense model의 2축으로 줄입니다. 하지만 GPU에서는 더 이상 expert를 별도의 축을 따라 shard할 수 없으므로, 더 이상 추가 communication의 비용을 완전히 완화할 수 없습니다. 위에서 언급했듯이, 어떤 종류의 더 많은 sharding, 특히 expert parallelism을 통해 AllReduce의 비용을 어느 정도 줄일 수 있습니다. node 수준에서 8-way expert parallelism을 했다면, node-level 비용은 줄이지만 spine 수준 비용은 줄이지 않아서, 이는 나쁩니다. 64-way 또는 심지어 256-way를 하면 상당한 승리를 얻지만, DP=X와 EP=Y에 대해, expert당 k token으로, (backward pass에서) roofline은 더 이상 그렇게 간단하지 않습니다:
 
 $$T_\text{math} = \frac{2 \cdot 2 \cdot 2 \cdot k \cdot B \cdot D \cdot F}{X \cdot Y \cdot C}$$
 
 $$T_\text{comms} = \frac{2 \cdot 2 \cdot E \cdot D \cdot F}{W_\text{AllReduce}}$$
 
-Where $W_\text{AllReduce}$ will be 8-times higher at the leaf level. This still gives us
+여기서 $W_\text{AllReduce}$는 leaf 수준에서 8배 높을 것입니다. 이는 여전히 다음을 제공합니다:
 
 $$\frac{B}{X} \gt \frac{E \cdot C}{2 \cdot k \cdot W_\text{AllReduce}}$$
 
-So with 8-way EP, we don’t really benefit at the leaf level. Taking DeepSeek with 256 experts and 8 activated (roughly) with 64-way EP (ignoring pipeline parallelism), suddenly the cost drops to `1236 * 256 / 8 / 8 = 4944`, meaning we would need `4944 * 2048 = 10M` tokens, which is actually doable. This is ignoring the extra factor of two from FSDP, which would bring this up to 20M.
+따라서 8-way EP로는 leaf 수준에서 실제로 이익을 얻지 못합니다. 256개의 expert와 8개가 활성화된(대략) DeepSeek을 64-way EP(pipeline parallelism 무시)로 취하면, 갑자기 비용이 `1236 * 256 / 8 / 8 = 4944`로 떨어져서, `4944 * 2048 = 10M` token이 필요함을 의미하며, 이는 실제로 가능합니다. 이는 FSDP의 추가 2의 인수를 무시한 것으로, 이를 20M으로 끌어올릴 것입니다.
 
-**Pipeline parallelism:** Pipeline parallelism has a very minor cost since we are just hopping a small message (the activations or activation gradients) over the top-level switch. This counts as an extra form of model parallelism, although it makes FSDP more challenging.
+**Pipeline parallelism:** Pipeline parallelism은 top-level switch를 통해 작은 메시지(activation 또는 activation gradient)를 hop하는 것뿐이므로 매우 작은 비용을 가집니다. 이는 추가 형태의 model parallelism으로 계산되지만, FSDP를 더 어렵게 만듭니다.
 
-**What does DeepSeek do?** For reference, DeepSeek is trained with 2048 H800 GPUs with:
+**DeepSeek은 무엇을 하나요?** 참고로, DeepSeek은 2048개의 H800 GPU로 다음과 함께 training됩니다:
 
-  * 64-way Expert Parallelism (EP) spanning 8 nodes
+  * 8개 node에 걸친 64-way Expert Parallelism (EP) 
   * 16-way Pipeline Parallelism (PP)
   * 2-way ZeRO-1 Data Parallelism (DP)
 
-They had a steady state batch size of `4096 * 15360 = 62,914,560` tokens. You can see that with 64-way EP and 16-way PP, we end up with 1024-way model parallelism in total, which means the AllReduce is done at the spine level. This gives us a lot more bandwidth from the fat tree to work with, so we have no issue with more data parallelism. We could do as little as 4-way pipeline parallelism and still be in this situation, although that has its own issues (bubbles).
+그들은 `4096 * 15360 = 62,914,560` token의 steady state batch size를 가졌습니다. 64-way EP와 16-way PP로 총 1024-way model parallelism이 되며, 이는 AllReduce가 spine 수준에서 수행됨을 의미합니다. 이는 fat tree에서 작업할 훨씬 더 많은 bandwidth를 제공하므로, 더 많은 data parallelism에 문제가 없습니다. 4-way pipeline parallelism만큼 적게 할 수 있고 여전히 이 상황에 있을 수 있지만, 그것은 자체 문제(bubble)가 있습니다.
 
-**TLDR of GPU scaling:**
+**GPU scaling의 TLDR:**
 
-* Pure data parallelism is amazing because SHARP reduces AllReduce cost, but not very useful for big models.
-* FSDP is fine, 2x cost and roofline of pure DP because we have to do an AG + RS or AR + AG (the second is better for pipelining). ZeRO-1 works with pipelining, ZeRO-3 doesn’t. \~2k tokens per GPU needed.
-* MP + FSDP is fine but not great, model parallelism can’t scale beyond a node for pure bandwidth reasons (nothing to do with cross-node bandwidth being less). Better in B100/B200. Reduces memory per GPU but doesn’t help otherwise, i.e. doesn’t reduce critical batch size because it doesn’t reduce leaf-level bandwidth.
-* In general, MoEs + DP is a bit harder because the experts are so chunky, so DP/FSDP rooflines go way up unless we do a lot of expert parallelism. Really need expert parallelism beyond the node level, like ideally EP + MP takes up an entire SU, so e.g. 8-way model parallelism, 32-way expert parallelism works well. Need to span many nodes to reduce leaf-level bandwidth.
-* Pipeline parallelism works fine if you can handle the code complexity of zero-bubble pipelining. Makes ZeRO-3 impossible, so have to do ZeRO-1 instead. Counts as model parallelism.
-* **Main TLDRs:**
-    * For smallish dense models, 8-way TP + pure data parallelism would be very strong. For H100 you could go up to a 64B model in bf16.
-    * For larger dense models, can do TP + PP or FSDP depending on batch size. More PP lets you go to a smaller batch size, but FSDP is fine in most cases.
-    * For MoEs, can do some combination of TP + EP + PP that gets you up to the spine level, then you’re fine because you have tons of bandwidth at the spine level with the fat tree. Can’t go past node-level TP, EP bounded by the number of experts and the cost of imbalance + A2A, PP bounded by microbatch size. Then do pure DP or ZeRO-1/3 beyond that.
+* Pure data parallelism은 SHARP가 AllReduce 비용을 줄이기 때문에 놀랍지만, 큰 model에는 그리 유용하지 않습니다.
+* FSDP는 괜찮고, AG + RS 또는 AR + AG를 해야 하기 때문에 pure DP의 2배 비용과 roofline(두 번째가 pipelining에 더 좋음). ZeRO-1은 pipelining과 작동하고, ZeRO-3는 안 됩니다. GPU당 ~2k token 필요.
+* MP + FSDP는 괜찮지만 그리 좋지 않고, model parallelism은 순수한 bandwidth 이유로(cross-node bandwidth가 적다는 것과는 관련 없음) node를 넘어 확장할 수 없습니다. B100/B200에서 더 좋습니다. GPU당 memory를 줄이지만 다른 방면으로는 도움이 되지 않습니다. 즉, leaf-level bandwidth를 줄이지 않기 때문에 critical batch size를 줄이지 않습니다.
+* 일반적으로, MoE + DP는 expert가 너무 chunky하기 때문에 약간 더 어려우므로, 많은 expert parallelism을 하지 않으면 DP/FSDP roofline이 올라갑니다. 정말로 node 수준을 넘어서는 expert parallelism이 필요하며, 이상적으로는 EP + MP가 전체 SU를 차지하므로, 예를 들어 8-way model parallelism, 32-way expert parallelism이 잘 작동합니다. leaf-level bandwidth를 줄이기 위해 많은 node에 걸쳐야 합니다.
+* Pipeline parallelism은 zero-bubble pipelining의 코드 복잡성을 처리할 수 있다면 괜찮게 작동합니다. ZeRO-3를 불가능하게 만들므로, 대신 ZeRO-1을 해야 합니다. Model parallelism으로 계산됩니다.
+* **주요 TLDR:**
+    * 작은 dense model의 경우, 8-way TP + pure data parallelism이 매우 강할 것입니다. H100의 경우 bf16에서 64B model까지 갈 수 있습니다.
+    * 더 큰 dense model의 경우, batch size에 따라 TP + PP 또는 FSDP를 할 수 있습니다. 더 많은 PP는 더 작은 batch size로 갈 수 있게 하지만, 대부분의 경우 FSDP가 괜찮습니다.
+    * MoE의 경우, spine 수준까지 올라가는 TP + EP + PP의 일부 조합을 할 수 있고, 그러면 fat tree로 spine 수준에서 많은 bandwidth를 가지므로 괜찮습니다. node-level TP를 넘어갈 수 없고, EP는 expert 수와 imbalance + A2A의 비용에 의해 제한되고, PP는 microbatch 크기에 의해 제한됩니다. 그 다음 그 너머에서 pure DP 또는 ZeRO-1/3을 합니다.
 
-### Worked problems
+### 실습 문제
 
-**Question 1 [Cross-node AR cost]:** Consider an array bf16[D<sub>X</sub>, F<sub>Y</sub>] sharded over a single node of N GPUs. How long does $\text{AllReduce}(bf16[D, F_Y] { U_X })$ take? You can assume we do in-network reductions. Explain how this differs if we have more than a single node?
+**문제 1 [Cross-node AR 비용]:** N개의 GPU를 가진 단일 node에 걸쳐 sharded된 배열 bf16[D<sub>X</sub>, F<sub>Y</sub>]를 고려하세요. $\text{AllReduce}(bf16[D, F_Y] { U_X })$는 얼마나 걸리나요? in-network reduction을 한다고 가정할 수 있습니다. 단일 node 이상을 가진다면 어떻게 다른지 설명하세요?
 
-{% details Click here for the answer. %}
+{% details 답을 보려면 클릭하세요. %}
 
-**Answer:** we can try to modify the answer to the similar question above. Basically, we first egress $B * (X - 1) / XY$ bytes from each GPU, then send back $B / XY$ to each GPU, then send that same amount back to the switch, then send $B * (X - 1) / XY$ back to each GPU. The total is $NB / Y$ ingress and egress, so the total time is $T_\text{comms} = NB / (Y \cdot W_\text{switch}) = N \cdot 2DF / (\left Y\rvert \cdot W_\text{switch})$, so the total time does decrease with Y.
+**답:** 위의 유사한 질문에 대한 답을 수정하려고 시도할 수 있습니다. 기본적으로, 먼저 각 GPU에서 $B * (X - 1) / XY$ byte를 egress하고, 그 다음 각 GPU에 $B / XY$를 다시 보내고, 그 다음 같은 양을 switch로 다시 보내고, 그 다음 각 GPU에 $B * (X - 1) / XY$를 다시 보냅니다. 총 $NB / Y$ ingress와 egress이므로, 총 시간은 $T_\text{comms} = NB / (Y \cdot W_\text{switch}) = N \cdot 2DF / (\left Y\rvert \cdot W_\text{switch})$이므로, 총 시간은 Y와 함께 감소합니다.
 
-If we go beyond a single node, we can do roughly the same reduction as above, but when we egress the node-level switch, we need to send all B bytes, not just B / Y. This is because we need to keep each model shard separate.
-
-{% enddetails %}
-
-**Question 2 [Spine level AR cost]:** Consider the same setting as above, but with 256-way model parallelism (so the AR happens at the spine level). How long does the AllReduce take? What batch size per GPU could we handle here?
-
-{% details Click here for the answer. %}
-
-**Answer:** This lets us take advantage of the rather ludicrous amount of bandwidth at the spine level. We have 25.6TB/s of bandwidth over 4 nodes, so an AllReduce bandwidth of 6.4TB/s. Using SHARP, this could take as little as $2 \cdot D \cdot F / 6.4e12$ seconds.
-
-This means in theory we can have as small a batch size as `989e12 / (2 * 6.4e12) = 77` tokens per GPU, or 19,712 per SU, which is pretty wild. This could be the case if we did something like 8-way model parallelism within the node, and 32-way expert parallelism across nodes, or some form of pipelining.
+단일 node를 넘어가면, 위와 대략 같은 reduction을 할 수 있지만, node-level switch를 egress할 때 B / Y만이 아니라 모든 B byte를 보내야 합니다. 이는 각 model shard를 별도로 유지해야 하기 때문입니다.
 
 {% enddetails %}
 
-## How does this change with B100 and the GB200 NVL72?
+**문제 2 [Spine level AR 비용]:** 위와 같은 설정이지만 256-way model parallelism(따라서 AR이 spine 수준에서 발생)을 고려하세요. AllReduce는 얼마나 걸리나요? 여기서 GPU당 어떤 batch size를 처리할 수 있나요?
 
-Broadwell introduces a bunch of major networking changes, including NVLink 5 with twice the overall bandwidth (900GB/s) and much larger nodes (72 GPUs in NVL72). Here's a diagram:
+{% details 답을 보려면 클릭하세요. %}
 
-{% include figure.liquid path="assets/gpu/b100-node.png" class="img-fluid" caption="<b>Figure:</b> a diagram showing how a B100/B200 NVL72 node is constructed, with 18 switches and 72 GPUs." %}
+**답:** 이는 spine 수준에서 상당히 터무니없는 양의 bandwidth를 활용할 수 있게 합니다. 4개 node에 걸쳐 25.6TB/s의 bandwidth를 가지므로, 6.4TB/s의 AllReduce bandwidth를 가집니다. SHARP를 사용하면, 이는 최소 $2 \cdot D \cdot F / 6.4e12$초가 걸릴 수 있습니다.
 
-The first order effect is that all our rooflines get roughly twice as good: all our AllReduces and AllGathers are twice as fast, so we can do twice as much of them. The BS > 1098 bound we calculated for pure data parallelism decreases to 549, which is close to a TPU v5p. The model parallelism bound for F = 16000 increases to 18, meaning we can do nearly twice the amount of model parallelism.
+이는 이론적으로 GPU당 `989e12 / (2 * 6.4e12) = 77` token만큼 작은 batch size를 가질 수 있음을 의미하거나, SU당 19,712개로, 이는 꽤 wild합니다. 이는 node 내에서 8-way model parallelism과 node 간에 32-way expert parallelism, 또는 어떤 형태의 pipelining을 한 경우일 수 있습니다.
 
-NVIDIA also has plans to build a 576 GPU GB200 NVL576 topology that has two layers of switches but can achieve full bandwidth between all GPUs. This is roughly a node although it will have some minor added latency between more distant GPUs. This has not yet been launched.
+{% enddetails %}
 
-{% include figure.liquid path="assets/gpu/nvl-576.png" class="img-small" caption="<b>Figure:</b> a diagram showing how we could see 576 GPU nodes in Broadwell." %}
+## B100과 GB200 NVL72에서는 어떻게 달라지는가?
+
+Broadwell은 두 배의 전체 bandwidth(900GB/s)를 가진 NVLink 5와 훨씬 더 큰 node(NVL72에서 72개 GPU)를 포함하여 많은 주요 networking 변화를 도입합니다. 다음은 diagram입니다:
+
+{% include figure.liquid path="assets/gpu/b100-node.png" class="img-fluid" caption="<b>그림:</b> 18개의 switch와 72개의 GPU로 B100/B200 NVL72 node가 어떻게 구성되는지 보여주는 diagram." %}
+
+1차 효과는 모든 roofline이 약 두 배 정도 좋아진다는 것입니다: 모든 AllReduce와 AllGather가 두 배 빠르므로, 두 배를 할 수 있습니다. pure data parallelism에 대해 계산한 BS > 1098 bound는 549로 감소하며, 이는 TPU v5p에 가깝습니다. F = 16000에 대한 model parallelism bound는 18로 증가하여, 거의 두 배의 model parallelism을 할 수 있음을 의미합니다.
+
+NVIDIA는 또한 두 layer의 switch를 가지지만 모든 GPU 간에 full bandwidth를 달성할 수 있는 576 GPU GB200 NVL576 topology를 구축할 계획을 가지고 있습니다. 이는 대략 node이지만 더 먼 GPU 간에 약간의 추가 latency를 가질 것입니다. 이는 아직 출시되지 않았습니다.
+
+{% include figure.liquid path="assets/gpu/nvl-576.png" class="img-small" caption="<b>그림:</b> Broadwell에서 576 GPU node를 볼 수 있는 방법을 보여주는 diagram." %}

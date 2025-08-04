@@ -1,8 +1,8 @@
 ---
 layout: distill
-title: "Conclusions and Further Reading"
+title: "결론 및 추가 읽을거리"
 # permalink: /main/
-description: "Thank you for reading! Here we'll include a few more references for further study."
+description: "읽어주셔서 감사합니다! 여기에 추가 학습을 위한 몇 가지 참고자료를 포함하겠습니다."
 date: 2025-02-04
 future: true
 htmlwidgets: true
@@ -10,7 +10,7 @@ hidden: false
 
 section_number: 11
 
-previous_section_url: "../jax-stuff"
+previous_section_url: "../jax-stuff-kr"
 previous_section_name: "Part 10: JAX"
 
 next_section_url: ""
@@ -49,9 +49,9 @@ authors:
 #     for hyperlinks within the post to work correctly.
 #   - please use this format rather than manually creating a markdown table of contents.
 toc:
-  - name: "Acknowledgments"
-  - name: "Further Reading"
-  - name: "Feedback"
+  - name: "감사의 말"
+  - name: "추가 읽을거리"
+  - name: "피드백"
 
 # Below is an example of injecting additional post-specific styles.
 # This is used in the 'Layouts' section of this post.
@@ -84,47 +84,41 @@ _styles: >
   }
 ---
 
-**Thank you for reading this set of essays and congratulations on making it all the way to the end.** Before we conclude, a few acknowledgments:
+**이 에세이 시리즈를 읽어주셔서 감사하며, 끝까지 완주하신 것을 축하드립니다.** 마무리하기 전에, 몇 가지 감사의 말을 전하겠습니다:
 
-## Acknowledgments
+## 감사의 말
 
-This document represents a significant collective investment from many people at Google DeepMind, who we'd like to briefly acknowledge!
+이 문서는 Google DeepMind의 많은 사람들의 상당한 집단적 투자를 나타내며, 간단히 감사를 표하고 싶습니다!
 
-* James Bradbury, Reiner Pope, and Blake Hechtman originally derived many of the ideas in this manuscript, and were early to understanding the systems view of the Transformer.
-* Sholto Douglas wrote the first version of this doc and is responsible for kicking off the project. He is more than anyone responsible for the overall narrative of this doc.
-* Jacob Austin led the work of transforming this first version from rough notes into a more polished and comprehensive artifact. He did much of the work of editing, formatting, and releasing this document, and coordinated contributions from other authors.
-* Most of the figures and animations were made by Anselm Levskaya and Charlie Chen.
-* Charlie Chen wrote the inference section and drew many of the inference figures.
-* Roy Frostig helped with publication, editing, and many other steps of the journey.
+* James Bradbury, Reiner Pope, Blake Hechtman이 원래 이 원고의 많은 아이디어를 도출했으며, Transformer의 시스템 관점을 이해하는 데 앞장섰습니다.
+* Sholto Douglas가 이 문서의 첫 번째 버전을 작성했으며 프로젝트를 시작한 책임이 있습니다. 그는 누구보다도 이 문서의 전체적인 내러티브에 책임이 있습니다.
+* Jacob Austin이 이 첫 번째 버전을 거친 노트에서 더 세련되고 포괄적인 결과물로 변환하는 작업을 주도했습니다. 그는 편집, 포맷팅, 이 문서 발행의 많은 작업을 했으며, 다른 저자들의 기여를 조정했습니다.
+* 대부분의 그림과 애니메이션은 Anselm Levskaya와 Charlie Chen이 만들었습니다.
+* Charlie Chen이 inference 섹션을 작성하고 많은 inference 그림을 그렸습니다.
+* Roy Frostig이 출판, 편집, 그리고 여정의 많은 다른 단계들을 도왔습니다.
 
-We'd also like to thank many others gave critical feedback throughout the process, in particular Zak Stone, Nikhil Sethi, Caitlin Stanton, Alex Dimitriev, Sridhar Lakshmanamurthy, Albert Magyar, Diwakar Gupta, Jeff Dean, Corry Wang, Matt Johnson, Peter Hawkins, and many others. Thanks to Ruiqi Gao for help with the HTML formatting.
+또한 과정 전반에 걸쳐 중요한 피드백을 제공한 많은 다른 분들에게도 감사드리고 싶습니다. 특히 Zak Stone, Nikhil Sethi, Caitlin Stanton, Alex Dimitriev, Sridhar Lakshmanamurthy, Albert Magyar, Diwakar Gupta, Jeff Dean, Corry Wang, Matt Johnson, Peter Hawkins, 그리고 많은 다른 분들께 감사드립니다. HTML 포맷팅을 도와준 Ruiqi Gao에게도 감사합니다.
 
-**Thank you all!**
+**모두 감사합니다!**
 
-## Further Reading
+## 추가 읽을거리
 
-There is a bunch of related writing, including the following:
+다음을 포함하여 관련된 글들이 많이 있습니다:
 
-* [**TPU Deep Dive**](https://henryhmko.github.io/posts/tpu/tpu.html): a wonderful in-depth look at the TPU architecture in the spirit of this book.
-* [**Making Deep Learning Go Brrrr From First Principles**](https://horace.io/brrr_intro.html): a more GPU and PyTorch-focused tutorial on LLM rooflines and performance engineering.
-* [**Writing TPU Kernels with Pallas**](https://jax.readthedocs.io/en/latest/pallas/tpu/details.html): increasingly, TPU programming involves writing custom kernels in Pallas. This series discusses how to write kernels and many lower level TPU details that aren't mentioned here.
-* [**How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog**](https://siboehm.com/articles/22/CUDA-MMM): while GPU and CUDA specific, this is an excellent blog post showing how to optimize a matmul kernel in CUDA. This might be a good deep dive into how TPUs and GPUs are different.
-* [**Distributed arrays and automatic parallelization**](https://jax.readthedocs.io/en/latest/notebooks/Distributed_arrays_and_automatic_parallelization.html): this is a really nice guide to parallelism APIs in JAX and is a good way to learn how to actually implement some of the ideas we've discussed here.
-* [**Rafi Witten's High Performance LLMs 2024 Class**](https://github.com/rwitten/HighPerfLLMs2024): our former colleague Rafi gave a great course on TPU performance engineering and the slides are all on GitHub. This covers a bunch of things in more depth than we do here.
-* [**\[2211.05102\] Efficiently Scaling Transformer Inference**](https://arxiv.org/abs/2211.05102): a detailed paper on the mathematics of Transformer inference. This is the inspiration for a lot of this document.
-* [**Huggingface Ultra-Scale Playbook**](https://huggingface.co/spaces/nanotron/ultrascale-playbook): something of a GPU analog to this book, this talks more at depth about how PyTorch implements parallelism techniques and memory-saving techniques during training.
-* [**Transformer Inference Arithmetic**](https://kipp.ly/transformer-inference-arithmetic/): a blog with many of the same ideas as this book and some excellent illustrations.
-* [**Stanford CS336 Slides and Videos**](https://stanford-cs336.github.io/spring2025/index.html#coursework): a fantastic Stanford course covering many details of LLM training and serving, with some useful exercises. Assignments 1 and 2 are particularly relevant.
-* [**Stas Bekman's ML Engineering Handbook**](https://github.com/stas00/ml-engineering): a highly practical guide to ML infrastructure, covering topics not addressed in this book like how to negotiate with cloud providers, cluster management, and empirical measurements of GPU throughput.
+* [**TPU Deep Dive**](https://henryhmko.github.io/posts/tpu/tpu.html): 이 책의 정신으로 TPU 아키텍처를 심도 있게 다룬 훌륭한 글입니다.
+* [**Making Deep Learning Go Brrrr From First Principles**](https://horace.io/brrr_intro.html): LLM roofline과 성능 엔지니어링에 대한 GPU와 PyTorch에 더 초점을 맞춘 튜토리얼입니다.
+* [**Writing TPU Kernels with Pallas**](https://jax.readthedocs.io/en/latest/pallas/tpu/details.html): 점점 더 TPU 프로그래밍은 Pallas에서 custom kernel을 작성하는 것을 포함합니다. 이 시리즈는 kernel을 작성하는 방법과 여기서 언급되지 않은 많은 lower level TPU 세부사항을 논의합니다.
+* [**How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog**](https://siboehm.com/articles/22/CUDA-MMM): GPU와 CUDA에 특화되어 있지만, 이는 CUDA에서 matmul kernel을 최적화하는 방법을 보여주는 훌륭한 블로그 포스트입니다. 이는 TPU와 GPU가 어떻게 다른지에 대한 좋은 심층 탐구가 될 수 있습니다.
+* [**Distributed arrays and automatic parallelization**](https://jax.readthedocs.io/en/latest/notebooks/Distributed_arrays_and_automatic_parallelization.html): 이는 JAX의 parallelism API에 대한 정말 좋은 가이드이며 여기서 논의한 아이디어들을 실제로 구현하는 방법을 배우는 좋은 방법입니다.
+* [**Rafi Witten's High Performance LLMs 2024 Class**](https://github.com/rwitten/HighPerfLLMs2024): 우리의 전 동료 Rafi가 TPU 성능 엔지니어링에 대한 훌륭한 강의를 했으며 슬라이드가 모두 GitHub에 있습니다. 이는 여기서 다루는 것보다 더 깊이 있게 많은 것들을 다룹니다.
+* [**\[2211.05102\] Efficiently Scaling Transformer Inference**](https://arxiv.org/abs/2211.05102): Transformer inference의 수학에 대한 상세한 논문입니다. 이는 이 문서의 많은 부분에 대한 영감입니다.
+* [**Huggingface Ultra-Scale Playbook**](https://huggingface.co/spaces/nanotron/ultrascale-playbook): 이 책의 GPU 아날로그 같은 것으로, 이는 PyTorch가 training 중에 parallelism 기술과 memory-saving 기술을 어떻게 구현하는지에 대해 더 깊이 이야기합니다.
+* [**Transformer Inference Arithmetic**](https://kipp.ly/transformer-inference-arithmetic/): 이 책과 같은 아이디어를 많이 가지고 있으며 일부 훌륭한 일러스트를 포함한 블로그입니다.
+* [**Stanford CS336 Slides and Videos**](https://stanford-cs336.github.io/spring2025/index.html#coursework): LLM training과 serving의 많은 세부사항을 다루는 환상적인 Stanford 강의로, 몇 가지 유용한 연습문제가 있습니다. Assignment 1과 2가 특히 관련이 있습니다.
+* [**Stas Bekman's ML Engineering Handbook**](https://github.com/stas00/ml-engineering): ML 인프라에 대한 매우 실용적인 가이드로, cloud provider와 협상하는 방법, cluster 관리, GPU throughput의 경험적 측정과 같이 이 책에서 다루지 않은 주제들을 다룹니다.
   
-There remains a lot of room for comprehensive writing in this area, so
-we hope this manuscript encourages more of it! We also believe that
-this is a fruitful area to study and research. In many cases, it can
-be done even without having many hardware accelerators on hand.
+이 영역에서 포괄적인 글쓰기의 여지가 여전히 많이 남아있으므로, 이 원고가 더 많은 것을 격려하기를 바랍니다! 또한 이것이 연구하고 공부하기에 유익한 영역이라고 믿습니다. 많은 경우에, 많은 하드웨어 accelerator를 보유하지 않고도 할 수 있습니다.
 
-## Feedback
+## 피드백
 
-Please leave comments or questions so that we can improve this
-further. You can reach our corresponding author, Jacob Austin, at
-jaaustin [at] google [dot] com, or suggest edits by posting issues,
-pull requests, or discussions [on GitHub](https://github.com/jax-ml/scaling-book).
+이를 더욱 개선할 수 있도록 코멘트나 질문을 남겨주세요. 교신 저자인 Jacob Austin에게 jaaustin [at] google [dot] com으로 연락하거나, [GitHub](https://github.com/jax-ml/scaling-book)에서 issue, pull request, 또는 discussion을 게시하여 편집을 제안할 수 있습니다.
