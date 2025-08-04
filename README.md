@@ -1,4 +1,4 @@
-# 모델 스케일링 방법
+# How To Scale Your Model
 
 > Claude Sonnet 4 를 통해 [원본 문서](https://github.com/jax-ml/scaling-book)를 한국어로 번역하였고, 현재 인간 리뷰어가 검토중인 문서입니다.
 
